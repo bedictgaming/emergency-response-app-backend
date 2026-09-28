@@ -1,21 +1,25 @@
 import jwt, { SignOptions } from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
+import { ENV } from "@/config/env";
+import type { Department } from "@/generated/prisma";
+import type { PermissionName } from "@/lib/permissions";
 
-export type JwtPayload = { sub: string; role: string; type: "access" | "refresh" };
-const jwtSecret = process.env.JWT_SECRET ? (process.env.JWT_SECRET as string) : "no-jwt-key";
+export type JwtPayload = { sub: string; role: string; type: "access" | "refresh"; sessionId?: string; department?: Department | null; isMainAdmin?: boolean; permissions?: PermissionName[] };
+const jwtSecret = ENV.JWT_SECRET;
 
 export enum TokenExpiry {
   ACCESS_TOKEN_EXPIRES = "15m",
   REFRESH_TOKEN_EXPIRES = "7d",
 }
 
-export function signAccessToken(userId: string, role: string, duration: SignOptions["expiresIn"]) {
-  const payload: JwtPayload = { sub: userId, role, type: "access" };
+export function signAccessToken(userId: string, role: string, duration: SignOptions["expiresIn"], sessionId: string) {
+  const payload: JwtPayload = { sub: userId, role, type: "access", sessionId };
   return jwt.sign(payload, jwtSecret, { expiresIn: duration });
 }
 
 export function signRefreshToken(userId: string, role: string, duration: SignOptions["expiresIn"]) {
   const payload: JwtPayload = { sub: userId, role, type: "refresh" };
-  return jwt.sign(payload, jwtSecret, { expiresIn: duration });
+  return jwt.sign(payload, jwtSecret, { expiresIn: duration, jwtid: randomUUID() });
 }
 
 export function verifyAccessToken(token: string): JwtPayload | null {

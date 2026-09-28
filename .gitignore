@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Local configuration, credentials, and recovery material
+.env*
+!.env.example
+*.pem
+*.key
+*.json.enc
+.database-backups/
+.railway/
+
+# Local IDE state and one-off diagnostics
+.idea/
+.vscode/
+find-token.js
+find-token.ts
+scratch-check-admins.ts
+
+/src/generated/prisma/

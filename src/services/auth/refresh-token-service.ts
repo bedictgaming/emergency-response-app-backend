@@ -1,6 +1,8 @@
 import { UserRepository } from "@/repositories/user.repository";
+import { prisma } from "@/lib/prisma";
 import { TokenRepository } from "@/repositories/token.repository";
 import { signAccessToken, signRefreshToken, TokenExpiry, verifyRefreshToken } from "@/lib/jwt";
+import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
 
 export async function RefreshTokenService(refreshToken?: string) {
   const payload = verifyRefreshToken(refreshToken!);
@@ -28,19 +30,26 @@ export async function RefreshTokenService(refreshToken?: string) {
   if (!user.emailVerified) {
     return { code: 403, status: "error", message: "Email not verified" };
   }
+  if (user.status !== "ACTIVE") {
+    return { code: 403, status: "error", message: "This account is inactive" };
+  }
+  if (!hasValidOperationalAssignment(user)) {
+    return { code: 403, status: "error", message: "This operational account has no valid department assignment" };
+  }
 
   // 4. Token Rotation: Consume the old token and generate a new pair
-  await tokenRepository.consumeToken(dbToken.id);
-
-  const accessToken = signAccessToken(user.id, user.role, TokenExpiry.ACCESS_TOKEN_EXPIRES);
   const newRefreshToken = signRefreshToken(user.id, user.role, TokenExpiry.REFRESH_TOKEN_EXPIRES);
 
   // 5. Store the new refresh token
-  await tokenRepository.createRefreshToken({
-    userId: user.id,
-    token: newRefreshToken,
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+  const rotated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+    const consumed = await tx.token.updateMany({ where: { id: dbToken.id, consumedAt: null, revokedAt: null, expiresAt: { gt: new Date() } }, data: { consumedAt: new Date() } });
+    if (consumed.count !== 1) return false;
+    const session = await tx.token.create({ data: { userId: user.id, type: "REFRESH", token: newRefreshToken, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
+    return session.id;
   });
+  if (!rotated) return { code: 401, status: "error", message: "Refresh token already used or revoked" };
+  const accessToken = signAccessToken(user.id, user.role, TokenExpiry.ACCESS_TOKEN_EXPIRES, rotated);
 
   return {
     code: 200,
@@ -53,12 +62,14 @@ export async function RefreshTokenService(refreshToken?: string) {
         expiresIn: TokenExpiry.ACCESS_TOKEN_EXPIRES,
         refreshExpiresIn: TokenExpiry.REFRESH_TOKEN_EXPIRES,
       },
-      user: {
+      user: withPermissions({
         id: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
-      },
+        department: user.department,
+        isMainAdmin: user.isMainAdmin,
+      }),
     },
   };
 }
