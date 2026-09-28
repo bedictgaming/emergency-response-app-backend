@@ -1,13 +1,18 @@
 import { Request, Response } from "express";
-import { SignupUserService, LoginCredentialsService, VerifyEmailService, RefreshTokenService, ResendEmailVerificationService, GetMeService } from "@/services/auth";
+import { Profile } from "passport-google-oauth20";
+import { SignupUserService, LoginCredentialsService, VerifyEmailService, RefreshTokenService, ResendEmailVerificationService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
 import { TokenExpiry, toMilliseconds } from "@/lib/jwt";
 import { ENV } from "@/config/env";
+import { prisma } from "@/lib/prisma";
 
 export class AuthController {
   // Helper to set cookies
-  private setAuthCookies(res: Response, tokens: { accessToken: string; refreshToken: string }) {
+  private setAuthCookies(
+    res: Response,
+    tokens: { accessToken: string; refreshToken: string },
+  ) {
     const isProduction = ENV.NODE_ENV === "production";
-    const domain = isProduction ? ".cloomero.cloud" : undefined;
+    const domain = ENV.COOKIE_DOMAIN;
 
     res.cookie("accessToken", tokens.accessToken, {
       httpOnly: true,
@@ -40,9 +45,9 @@ export class AuthController {
     
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
     if (result.code === 200) {
-      return res.redirect(`${frontendUrl}/login?verified=true`);
+      return res.redirect(`${frontendUrl}/?verified=true`);
     } else {
-      return res.redirect(`${frontendUrl}/login?error=verification_failed`);
+      return res.redirect(`${frontendUrl}/?error=verification_failed`);
     }
   };
   
@@ -53,6 +58,7 @@ export class AuthController {
     
     if (result.code === 200 && result.data?.tokens) {
       this.setAuthCookies(res, result.data.tokens);
+      return res.status(200).json({ code: 200, status: "success", message: result.message, data: { user: result.data.user } });
     }
 
     return res.status(result.code).json(result);
@@ -65,19 +71,37 @@ export class AuthController {
 
     if (result.code === 200 && result.data?.tokens) {
       this.setAuthCookies(res, result.data.tokens);
+      return res.status(200).json({ code: 200, status: "success", message: result.message, data: { user: result.data.user } });
     }
 
     return res.status(result.code).json(result);
   };
 
   // Handle Logout
-  public logout = (req: Request, res: Response) => {
-    const isProduction = ENV.NODE_ENV === "production";
-    const domain = isProduction ? ".cloomero.cloud" : undefined;
+  public logout = async (req: Request, res: Response) => {
+    const domain = ENV.COOKIE_DOMAIN;
+    const refresh = req.cookies?.refreshToken || req.body?.refreshToken;
+    if (typeof refresh === "string") await prisma.token.updateMany({ where: { token: refresh, type: "REFRESH", revokedAt: null }, data: { revokedAt: new Date() } });
 
     res.clearCookie("accessToken", { domain });
     res.clearCookie("refreshToken", { domain });
     return res.status(200).json({ code: 200, status: "success", message: "Logged out successfully" });
+  };
+
+  // Google OAuth Callback
+  public googleCallback = async (req: Request, res: Response) => {
+    const profile = req.user as Profile;
+    const result = await GoogleOAuthService(profile);
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    if (result.code === 200 && result.data?.tokens) {
+      this.setAuthCookies(res, result.data.tokens);
+        // Authentication is carried by secure HttpOnly cookies. Never put an
+        // access token in URLs, browser history, analytics, or server logs.
+        return res.redirect(`${frontendUrl}/login?oauth=success`);
+    }
+
+    return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
   };
 
   // Resend Email Verification
@@ -91,6 +115,16 @@ export class AuthController {
   public me = async (req: Request, res: Response) => {
     const userId = (req as any).user?.sub;
     const result = await GetMeService(userId);
+    return res.status(result.code).json(result);
+  };
+
+  public requestPasswordReset = async (req: Request, res: Response) => {
+    const result = await RequestPasswordResetService(req.body.email);
+    return res.status(result.code).json(result);
+  };
+
+  public resetPassword = async (req: Request, res: Response) => {
+    const result = await ResetPasswordService(req.body.token, req.body.password);
     return res.status(result.code).json(result);
   };
 }

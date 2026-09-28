@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { TokenType } from "@/generated/prisma/enums";
+import { TokenType } from "@/generated/prisma";
 import type { Token } from "@/generated/prisma/client";
 
 export class TokenRepository {

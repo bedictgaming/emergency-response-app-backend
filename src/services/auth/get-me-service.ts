@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { withPermissions } from "@/lib/permissions";
 
 export const GetMeService = async (userId: string) => {
   try {
@@ -9,6 +10,8 @@ export const GetMeService = async (userId: string) => {
         name: true,
         email: true,
         role: true,
+        department: true,
+        isMainAdmin: true,
         emailVerified: true,
       }
     });
@@ -20,7 +23,7 @@ export const GetMeService = async (userId: string) => {
     return {
       code: 200,
       status: "success",
-      data: { user },
+      data: { user: withPermissions(user) },
     };
   } catch (error) {
     console.error("GetMeService Error", error);

@@ -1,49 +1,522 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
 }
-
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+// ============================================================
 // Enums
+// ============================================================
+
 enum Role {
   USER
   ADMIN
+  DISPATCHER
+  RESPONDER
+}
+
+enum Department {
+  MAIN
+  FIRE
+  MEDICAL
+  POLICE
+  DRRMO
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
 }
 
 enum TokenType {
   REFRESH
   EMAIL_VERIFY
+  PASSWORD_RESET
 }
 
-// Models
-model User {
-  id               String    @id @default(uuid())
-  email            String?   @unique
-  password         String?
-  name             String?
-  emailVerified    DateTime? @map("email_verified") // @map is custom table name
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+enum IncidentStatus {
+  OPEN
+  ACTIVE
+  RESPONDING
+  RESOLVED
+  CLOSED
+}
 
-  role             Role      @default(USER) // default value from enum Role "USER"
-  tokens           Token[]
+enum SeverityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum ResponderStatus {
+  AVAILABLE
+  DEPLOYED
+  OFF_DUTY
+}
+
+enum ResourceStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  DEPLETED
+}
+
+enum UnitStatus {
+  AVAILABLE
+  DEPLOYED
+  OUT_OF_SERVICE
+}
+
+enum AlertType {
+  WEATHER
+  SECURITY
+  MEDICAL
+  FIRE
+  GENERAL
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum IncidentUnitStatus {
+  DISPATCHED
+  EN_ROUTE
+  ON_SCENE
+  RETURNED
+}
+
+enum BarangayStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ResponseService {
+  FIRE
+  MEDICAL
+  POLICE
+  HAZARD
+}
+
+enum ServiceResponseStatus {
+  RESPONDING
+  RESOLVED
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ============================================================
+// Auth & Users
+// ============================================================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String?   @unique
+  password      String?
+  name          String?
+  emailVerified DateTime? @map("email_verified")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  role   Role       @default(USER)
+  status UserStatus @default(ACTIVE)
+  department  Department?
+  isMainAdmin Boolean     @default(false) @map("is_main_admin")
+
+  // Auth relations
+  tokens        Token[]
+  oauthAccounts OAuthAccount[]
+
+  // Emergency-response relations
+  responder         Responder?
+  reportedIncidents Incident[]    @relation("IncidentReportedBy")
+  uploadedFiles     Attachment[]  @relation("AttachmentUploadedBy")
+  sentAlerts        Alert[]       @relation("AlertSentBy")
+  verifiedIncidents Incident[]    @relation("IncidentVerifiedBy")
+  auditLogs         AuditLog[]
+  deviceTokens      DeviceToken[]
+  resolvedResponses IncidentServiceResponse[] @relation("ServiceResponseResolvedBy")
+  mergedIncidents    Incident[]                @relation("IncidentMergedBy")
 }
 
 model Token {
-  id         String     @id @default(uuid())
+  id         String    @id @default(uuid())
   type       TokenType
-  token      String     @unique
+  token      String    @unique
   expiresAt  DateTime
-  createdAt  DateTime   @default(now())
+  createdAt  DateTime  @default(now())
   consumedAt DateTime?
   revokedAt  DateTime?
 
-  userId     String
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, type])
 }
 
+model OAuthAccount {
+  id                String @id @default(uuid())
+  provider          String // e.g. "google"
+  providerAccountId String // Google's sub / user ID
+  userId            String
+  user              User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// ============================================================
+// Reference Tables
+// ============================================================
+
+model Location {
+  locationId   String   @id @default(uuid()) @map("location_id") @db.Uuid
+  locationName String   @map("location_name")
+  address      String?
+  city         String?
+  province     String?
+  latitude     Decimal? @db.Decimal(9, 6)
+  longitude    Decimal? @db.Decimal(9, 6)
+
+  incidents Incident[]
+  alerts    Alert[]
+
+  @@map("locations")
+}
+
+model Barangay {
+  barangayId String         @id @default(uuid()) @map("barangay_id") @db.Uuid
+  name       String         @unique
+  status     BarangayStatus @default(ACTIVE)
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  incidents Incident[]
+
+  @@map("barangays")
+}
+
+model IncidentType {
+  typeId      String  @id @default(uuid()) @map("type_id") @db.Uuid
+  typeName    String  @unique @map("type_name")
+  description String?
+
+  incidents Incident[]
+
+  @@map("incident_types")
+}
+
+// ============================================================
+// Units & Responders
+// ============================================================
+
+model Unit {
+  unitId   String     @id @default(uuid()) @map("unit_id") @db.Uuid
+  unitName String     @map("unit_name")
+  unitType String     @map("unit_type")
+  status   UnitStatus @default(AVAILABLE)
+
+  responders    Responder[]
+  resources     Resource[]
+  incidentUnits IncidentUnit[]
+
+  @@map("units")
+}
+
+model Responder {
+  responderId    String          @id @default(uuid()) @map("responder_id") @db.Uuid
+  userId         String          @unique @map("user_id")
+  unitId         String          @map("unit_id") @db.Uuid
+  rank           String?
+  certifications String?
+  status         ResponderStatus @default(AVAILABLE)
+
+  user  User   @relation(fields: [userId], references: [id])
+  unit  Unit   @relation(fields: [unitId], references: [unitId])
+  tasks Task[] @relation("TaskAssignedTo")
+
+  @@index([unitId])
+  @@map("responders")
+}
+
+model Resource {
+  resourceId   String         @id @default(uuid()) @map("resource_id") @db.Uuid
+  resourceName String         @map("resource_name")
+  resourceType String         @map("resource_type")
+  quantity     Int
+  status       ResourceStatus @default(AVAILABLE)
+  unitId       String         @map("unit_id") @db.Uuid
+
+  unit Unit @relation(fields: [unitId], references: [unitId])
+
+  @@index([unitId])
+  @@map("resources")
+}
+
+// ============================================================
+// Incidents
+// ============================================================
+
+model Incident {
+  incidentId         String             @id @default(uuid()) @map("incident_id") @db.Uuid
+  title              String
+  description        String?
+  typeId             String             @map("type_id") @db.Uuid
+  locationId         String             @map("location_id") @db.Uuid
+  barangayId         String?            @map("barangay_id") @db.Uuid
+  latitude           Decimal?           @db.Decimal(9, 6)
+  longitude          Decimal?           @db.Decimal(9, 6)
+  severityLevel      SeverityLevel      @map("severity_level")
+  requestedServices  ResponseService[]  @default([]) @map("requested_services")
+  status             IncidentStatus     @default(ACTIVE)
+  verificationStatus VerificationStatus @default(VERIFIED) @map("verification_status")
+  verificationNotes  String?            @map("verification_notes")
+  verifiedAt         DateTime?          @map("verified_at")
+  verifiedBy         String?            @map("verified_by")
+  reportedBy         String             @map("reported_by")
+  reportedAt         DateTime           @default(now()) @map("reported_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  mergedIntoId       String?            @map("merged_into_id") @db.Uuid
+  mergedAt           DateTime?          @map("merged_at")
+  mergedBy           String?            @map("merged_by")
+  mergeReason        String?            @map("merge_reason")
+
+  type          IncidentType   @relation(fields: [typeId], references: [typeId])
+  location      Location       @relation(fields: [locationId], references: [locationId])
+  barangay      Barangay?      @relation(fields: [barangayId], references: [barangayId])
+  reporter      User           @relation("IncidentReportedBy", fields: [reportedBy], references: [id])
+  verifier      User?          @relation("IncidentVerifiedBy", fields: [verifiedBy], references: [id], onDelete: SetNull)
+  incidentUnits IncidentUnit[]
+  tasks         Task[]
+  attachments   Attachment[]
+  alerts        Alert[]        @relation("AlertRelatedIncident")
+  serviceResponses IncidentServiceResponse[]
+  mergedInto     Incident?  @relation("IncidentMerges", fields: [mergedIntoId], references: [incidentId], onDelete: SetNull)
+  mergedReports  Incident[] @relation("IncidentMerges")
+  merger         User?      @relation("IncidentMergedBy", fields: [mergedBy], references: [id], onDelete: SetNull)
+
+  @@index([reportedBy])
+  @@index([typeId])
+  @@index([locationId])
+  @@index([barangayId])
+  @@index([status])
+  @@index([verificationStatus])
+  @@index([barangayId, reportedAt])
+  @@index([typeId, reportedAt])
+  @@index([barangayId, typeId, status, reportedAt])
+  @@index([barangayId, status, reportedAt])
+  @@index([status, updatedAt])
+  @@index([reportedAt(sort: Desc)])
+  @@index([requestedServices], type: Gin)
+  @@index([mergedIntoId])
+  @@map("incidents")
+}
+
+model IncidentServiceResponse {
+  incidentServiceResponseId String                @id @default(uuid()) @map("incident_service_response_id") @db.Uuid
+  incidentId                String                @map("incident_id") @db.Uuid
+  service                   ResponseService
+  status                    ServiceResponseStatus @default(RESPONDING)
+  resolvedAt                DateTime?             @map("resolved_at")
+  resolvedBy                String?               @map("resolved_by")
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  updatedAt                 DateTime              @updatedAt @map("updated_at")
+
+  incident Incident @relation(fields: [incidentId], references: [incidentId], onDelete: Cascade)
+  resolver User?    @relation("ServiceResponseResolvedBy", fields: [resolvedBy], references: [id], onDelete: SetNull)
+
+  @@unique([incidentId, service])
+  @@index([service, status])
+  @@map("incident_service_responses")
+}
+
+// ============================================================
+// Incident_Units (junction: Incidents <-> Units)
+// ============================================================
+
+model IncidentUnit {
+  incidentUnitId String             @id @default(uuid()) @map("incident_unit_id") @db.Uuid
+  incidentId     String             @map("incident_id") @db.Uuid
+  unitId         String             @map("unit_id") @db.Uuid
+  assignedAt     DateTime           @default(now()) @map("assigned_at")
+  role           String?
+  status         IncidentUnitStatus @default(DISPATCHED)
+
+  incident Incident @relation(fields: [incidentId], references: [incidentId])
+  unit     Unit     @relation(fields: [unitId], references: [unitId])
+
+  @@unique([incidentId, unitId])
+  @@index([incidentId])
+  @@index([unitId])
+  @@map("incident_units")
+}
+
+// ============================================================
+// Tasks
+// ============================================================
+
+model Task {
+  taskId      String       @id @default(uuid()) @map("task_id") @db.Uuid
+  incidentId  String       @map("incident_id") @db.Uuid
+  assignedTo  String?      @map("assigned_to") @db.Uuid
+  taskName    String       @map("task_name")
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(PENDING)
+  dueAt       DateTime?    @map("due_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  incident Incident   @relation(fields: [incidentId], references: [incidentId])
+  assignee Responder? @relation("TaskAssignedTo", fields: [assignedTo], references: [responderId])
+
+  @@index([incidentId])
+  @@index([assignedTo])
+  @@map("tasks")
+}
+
+// ============================================================
+// Attachments
+// ============================================================
+
+model Attachment {
+  attachmentId     String    @id @default(uuid()) @map("attachment_id") @db.Uuid
+  incidentId       String    @map("incident_id") @db.Uuid
+  fileName         String    @map("file_name")
+  fileType         String    @map("file_type")
+  fileUrl          String    @map("file_url")
+  publicId         String?   @unique @map("public_id")
+  format           String?
+  bytes            Int?
+  width            Int?
+  height           Int?
+  perceptualHash   String?   @map("perceptual_hash")
+  moderationStatus String?   @map("moderation_status")
+  verifiedAt       DateTime? @map("verified_at")
+  uploadedAt       DateTime  @default(now()) @map("uploaded_at")
+  uploadedBy       String    @map("uploaded_by")
+
+  incident Incident @relation(fields: [incidentId], references: [incidentId])
+  uploader User     @relation("AttachmentUploadedBy", fields: [uploadedBy], references: [id])
+
+  @@index([incidentId])
+  @@index([uploadedBy])
+  @@map("attachments")
+}
+
+model AuditLog {
+  auditLogId String   @id @default(uuid()) @map("audit_log_id") @db.Uuid
+  actorId    String?  @map("actor_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@map("audit_logs")
+}
+
+model DeviceToken {
+  deviceTokenId String   @id @default(uuid()) @map("device_token_id") @db.Uuid
+  userId        String   @map("user_id")
+  token         String   @unique
+  platform      String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+model NotificationOutbox {
+  notificationOutboxId String    @id @default(uuid()) @map("notification_outbox_id") @db.Uuid
+  eventType            String    @map("event_type")
+  payload              Json
+  userIds              String[]  @default([]) @map("user_ids")
+  status               JobStatus @default(PENDING)
+  attempts             Int       @default(0)
+  nextAttemptAt        DateTime  @default(now()) @map("next_attempt_at")
+  lastError            String?   @map("last_error")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  completedAt          DateTime? @map("completed_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("notification_outbox")
+}
+
+model AssetCleanupJob {
+  assetCleanupJobId String    @id @default(uuid()) @map("asset_cleanup_job_id") @db.Uuid
+  publicId          String    @unique @map("public_id")
+  status            JobStatus @default(PENDING)
+  attempts          Int       @default(0)
+  nextAttemptAt     DateTime  @default(now()) @map("next_attempt_at")
+  lastError         String?   @map("last_error")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  completedAt       DateTime? @map("completed_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("asset_cleanup_jobs")
+}
+
+// ============================================================
+// Alerts
+// ============================================================
+
+model Alert {
+  alertId    String        @id @default(uuid()) @map("alert_id") @db.Uuid
+  alertType  AlertType
+  message    String
+  severity   AlertSeverity @default(INFO)
+  incidentId String?       @map("incident_id") @db.Uuid
+  locationId String?       @map("location_id") @db.Uuid
+  sentAt     DateTime      @default(now()) @map("sent_at")
+  sentBy     String        @map("sent_by")
+
+  incident Incident? @relation("AlertRelatedIncident", fields: [incidentId], references: [incidentId])
+  location Location? @relation(fields: [locationId], references: [locationId])
+  sender   User      @relation("AlertSentBy", fields: [sentBy], references: [id])
+
+  @@index([incidentId])
+  @@index([locationId])
+  @@index([sentBy])
+  @@map("alerts")
+}
