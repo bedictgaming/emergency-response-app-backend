@@ -1,11 +1,12 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { protectIncidentEvidence } from "@/lib/evidence";
+import type { Department } from "@/generated/prisma";
 
 const incidentRepository = new IncidentRepository();
 
-export const GetIncidentService = async (id: string) => {
+export const GetIncidentService = async (id: string, reviewDepartment?: Department | "ALL") => {
   try {
-    const incident = await incidentRepository.findById(id);
+    const incident = await incidentRepository.findById(id, reviewDepartment);
 
     if (!incident) {
       return { code: 404, status: "error", message: "Incident not found" };

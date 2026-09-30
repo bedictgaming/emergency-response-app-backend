@@ -16,6 +16,7 @@ import { Role } from "@/generated/prisma";
 import { Permission } from "@/lib/permissions";
 import { requireIncidentAccess } from "@/middlewares/incident-access-middleware";
 import { requireTargetResponderDepartment, requireTargetUnitDepartment, requireUnitDepartment } from "@/middlewares/operational-access-middleware";
+import { deleteIncidentSchema, flagIncidentSchema, listReviewFlagsSchema, reviewIncidentFlagSchema } from "@/schema/incident/review-incident.schema";
 
 // Initialize
 const router = Router();
@@ -35,7 +36,11 @@ const nearbyCheckLimiter = rateLimit({
 
 // Public Routes (still authenticated — anyone logged in can view incidents)
 router.get("/v1/", authMiddleware.execute, validateSchema(listIncidentsSchema), incidentController.getAll);
+router.get("/v1/review-flags", authMiddleware.execute, requireMainAdmin, validateSchema(listReviewFlagsSchema), incidentController.listReviewFlags);
 router.get("/v1/:id", authMiddleware.execute, requireIncidentAccess, incidentController.getById);
+
+router.post("/v1/:id/review-flags", authMiddleware.execute, permittedRole([Role.ADMIN]), requirePermission(Permission.IncidentManageDepartment), validateSchema(flagIncidentSchema), requireIncidentAccess, incidentController.flag);
+router.patch("/v1/:id/review-flags/:flagId", authMiddleware.execute, requireMainAdmin, validateSchema(reviewIncidentFlagSchema), requireIncidentAccess, incidentController.reviewFlag);
 
 // Protected Routes — any authenticated user can report an incident
 router.post(
@@ -84,11 +89,12 @@ router.post(
   incidentController.merge,
 );
 
-// Protected Routes — only ADMIN can delete incidents
+// Only the main administrator can permanently delete a closed report.
 router.delete(
   "/v1/:id",
   authMiddleware.execute,
   requirePermission(Permission.IncidentManageAll),
+  validateSchema(deleteIncidentSchema),
   requireIncidentAccess,
   requireMainAdmin,
   incidentController.delete

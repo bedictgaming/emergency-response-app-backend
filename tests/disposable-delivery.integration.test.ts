@@ -392,4 +392,56 @@ suite("disposable PostgreSQL incident delivery", () => {
     expect(persisted[0].serviceResponses.map((item) => item.service)).toEqual(["FIRE"]);
     console.info("Disposable duplicate-race sample (ms):", Math.round(performance.now() - startedAt));
   }, 30_000);
+
+  it("reviews a shared report without interrupting responses and permits deletion only by main admin after closure", async () => {
+    const location = await prisma.location.create({ data: { locationName: `Codex review ${testId}` } });
+    locationIds.push(location.locationId);
+    const publicId = `emergency-incidents/${citizen.id}/test-review-${testId}`;
+    publicIds.push(publicId);
+    const incident = await prisma.incident.create({ data: {
+      title: `Codex review ${testId}`, typeId: generalTypeId, locationId: location.locationId,
+      reportedBy: citizen.id, severityLevel: "LOW", status: "RESPONDING", requestedServices: ["FIRE", "MEDICAL"],
+      serviceResponses: { create: [{ service: "FIRE" }, { service: "MEDICAL" }] },
+      attachments: { create: { fileName: "synthetic-review.jpg", fileType: "image/jpeg", fileUrl: "https://evidence.invalid/review", publicId, uploadedBy: citizen.id } },
+    } });
+    incidentIds.push(incident.incidentId);
+    const path = `/api/incidents/v1/${incident.incidentId}`;
+    const flagBody = { reason: "Synthetic report confirmed as a training exercise" };
+    for (const account of [citizen, police]) {
+      expect((await jsonRequest(`${path}/review-flags`, { method: "POST", cookie: account.cookie, body: flagBody })).response.status).toBe(403);
+    }
+    const repeated = await Promise.all([1, 2].map(() => jsonRequest(`${path}/review-flags`, { method: "POST", cookie: fire.cookie, body: flagBody })));
+    expect(repeated.map(result => result.response.status)).toEqual([200, 200]);
+    const flag = repeated[0].body.data.flag;
+    expect(repeated[1].body.data.flag.reviewFlagId).toBe(flag.reviewFlagId);
+    expect(await prisma.incidentReviewFlag.count({ where: { incidentId: incident.incidentId } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { entityId: incident.incidentId, action: "INCIDENT_FLAGGED" } })).toBe(1);
+    const citizenRead = await jsonRequest(path, { cookie: citizen.cookie });
+    expect(citizenRead.body.data.incident.reviewFlags).toBeUndefined();
+    const medicalRead = await jsonRequest(path, { cookie: medical.cookie });
+    expect(medicalRead.body.data.incident.reviewFlags).toEqual([]);
+    expect(medicalRead.body.data.incident.status).toBe("RESPONDING");
+    expect((await jsonRequest("/api/incidents/v1/review-flags", { cookie: fire.cookie })).response.status).toBe(403);
+    const queue = await jsonRequest("/api/incidents/v1/review-flags", { cookie: main.cookie });
+    expect(queue.response.status).toBe(200);
+    expect(queue.body.data.flags.some((item: { reviewFlagId: string }) => item.reviewFlagId === flag.reviewFlagId)).toBe(true);
+    const decision = { status: "CONFIRMED", reviewNotes: "Confirmed by the synthetic test operator", expectedUpdatedAt: flag.updatedAt };
+    expect((await jsonRequest(`${path}/review-flags/${flag.reviewFlagId}`, { method: "PATCH", cookie: fire.cookie, body: decision })).response.status).toBe(403);
+    const decisions = await Promise.all([1, 2].map(() => jsonRequest(`${path}/review-flags/${flag.reviewFlagId}`, { method: "PATCH", cookie: main.cookie, body: decision })));
+    expect(decisions.map(result => result.response.status).sort()).toEqual([200, 409]);
+    const unchanged = await prisma.incident.findUniqueOrThrow({ where: { incidentId: incident.incidentId }, include: { attachments: true, serviceResponses: true } });
+    expect(unchanged.status).toBe("RESPONDING");
+    expect(unchanged.attachments).toHaveLength(1);
+    expect(unchanged.serviceResponses.every(service => service.status === "RESPONDING")).toBe(true);
+    const deletion = { reason: "Synthetic confirmed false report cleanup", confirmation: "DELETE" };
+    expect((await jsonRequest(path, { method: "DELETE", cookie: fire.cookie, body: deletion })).response.status).toBe(403);
+    expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: deletion })).response.status).toBe(409);
+    for (const status of ["RESOLVED", "CLOSED"]) expect((await jsonRequest(path, { method: "PUT", cookie: main.cookie, body: { status } })).response.status).toBe(200);
+    expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: { ...deletion, confirmation: "delete" } })).response.status).toBe(400);
+    expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: deletion })).response.status).toBe(200);
+    expect(await prisma.incident.count({ where: { incidentId: incident.incidentId } })).toBe(0);
+    expect(await prisma.incidentReviewFlag.count({ where: { incidentId: incident.incidentId } })).toBe(0);
+    expect(await prisma.auditLog.count({ where: { entityId: incident.incidentId, action: "INCIDENT_DELETED" } })).toBe(1);
+    expect(await prisma.assetCleanupJob.count({ where: { publicId } })).toBe(1);
+  }, 120_000);
 });

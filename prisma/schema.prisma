@@ -39,6 +39,12 @@ enum VerificationStatus {
   REJECTED
 }
 
+enum IncidentReviewStatus {
+  PENDING
+  CONFIRMED
+  DISMISSED
+}
+
 enum TokenType {
   REFRESH
   EMAIL_VERIFY
@@ -168,6 +174,8 @@ model User {
   deviceTokens      DeviceToken[]
   resolvedResponses IncidentServiceResponse[] @relation("ServiceResponseResolvedBy")
   mergedIncidents    Incident[]                @relation("IncidentMergedBy")
+  flaggedIncidentReviews IncidentReviewFlag[] @relation("IncidentReviewFlaggedBy")
+  reviewedIncidentFlags IncidentReviewFlag[] @relation("IncidentReviewReviewedBy")
 }
 
 model Token {
@@ -325,6 +333,7 @@ model Incident {
   mergedInto     Incident?  @relation("IncidentMerges", fields: [mergedIntoId], references: [incidentId], onDelete: SetNull)
   mergedReports  Incident[] @relation("IncidentMerges")
   merger         User?      @relation("IncidentMergedBy", fields: [mergedBy], references: [id], onDelete: SetNull)
+  reviewFlags    IncidentReviewFlag[]
 
   @@index([reportedBy])
   @@index([typeId])
@@ -341,6 +350,30 @@ model Incident {
   @@index([requestedServices], type: Gin)
   @@index([mergedIntoId])
   @@map("incidents")
+}
+
+// A review request never changes incident/department response state.
+// AuditLog preserves every flag/review transition, including reflagging.
+model IncidentReviewFlag {
+  reviewFlagId String @id @default(uuid()) @map("review_flag_id") @db.Uuid
+  incidentId String @map("incident_id") @db.Uuid
+  department Department
+  reason String
+  status IncidentReviewStatus @default(PENDING)
+  flaggedBy String? @map("flagged_by")
+  reviewedBy String? @map("reviewed_by")
+  reviewNotes String? @map("review_notes")
+  reviewedAt DateTime? @map("reviewed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  incident Incident @relation(fields: [incidentId], references: [incidentId], onDelete: Cascade)
+  flagger User? @relation("IncidentReviewFlaggedBy", fields: [flaggedBy], references: [id], onDelete: SetNull)
+  reviewer User? @relation("IncidentReviewReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@unique([incidentId, department])
+  @@index([status, updatedAt])
+  @@map("incident_review_flags")
 }
 
 model IncidentServiceResponse {

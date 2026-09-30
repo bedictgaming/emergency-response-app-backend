@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
+import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { responderIncidentScope } from '@/lib/incident-scope';
 
 interface CreateIncidentData {
@@ -44,7 +44,13 @@ interface IncidentFilters {
   limit?: number;
   includeAttachments?: boolean;
   includeUnits?: boolean;
+  reviewDepartment?: Department | "ALL";
 }
+
+const reviewFlagInclude = (department?: Department | "ALL") => department ? {
+  where: { status: { not: "DISMISSED" as const }, ...(department !== "ALL" && { department }) },
+  orderBy: { createdAt: "asc" as const },
+} : false;
 
 export class IncidentRepository {
   async findAll(filters?: IncidentFilters) {
@@ -87,6 +93,7 @@ export class IncidentRepository {
           take: 1,
         } : false,
         serviceResponses: true,
+        reviewFlags: reviewFlagInclude(filters?.reviewDepartment),
       },
       orderBy: { reportedAt: "desc" },
       skip: ((filters?.page ?? 1) - 1) * (filters?.limit ?? 50),
@@ -171,7 +178,7 @@ export class IncidentRepository {
   }
 
 
-  async findById(id: string) {
+  async findById(id: string, reviewDepartment?: Department | "ALL") {
     return await prisma.incident.findUnique({
       where: { incidentId: id },
       include: {
@@ -203,6 +210,7 @@ export class IncidentRepository {
           orderBy: { uploadedAt: "desc" },
         },
         serviceResponses: true,
+        reviewFlags: reviewFlagInclude(reviewDepartment),
       },
     });
   }

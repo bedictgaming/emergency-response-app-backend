@@ -1,5 +1,5 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
-import { IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
+import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { protectIncidentEvidence } from "@/lib/evidence";
 
 const incidentRepository = new IncidentRepository();
@@ -24,6 +24,7 @@ interface GetAllIncidentsFilters {
   includeServiceSummary?: boolean;
   includeAttachments?: boolean;
   includeUnits?: boolean;
+  reviewDepartment?: Department | "ALL";
 }
 
 export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) => {

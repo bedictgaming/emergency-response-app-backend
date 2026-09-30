@@ -14,6 +14,7 @@ import {
 import { Department, IncidentStatus, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { departmentIncidentScope, departmentService } from "@/lib/department-access";
 import { isMainAdministrator } from "@/lib/permissions";
+import { FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -79,6 +80,7 @@ export class IncidentController {
       includeServiceSummary: req.query.includeServiceSummary === "true",
       includeAttachments: req.query.includeAttachments === "true",
       includeUnits: req.query.includeUnits === "true",
+      reviewDepartment: req.query.includeReviewFlags === "true" ? reviewDepartmentFor(authReq.user!) : undefined,
     };
 
     const result = await GetAllIncidentsService(filters);
@@ -88,7 +90,7 @@ export class IncidentController {
   // GET /incidents/v1/:id
   public getById = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const result = await GetIncidentService(id);
+    const result = await GetIncidentService(id, reviewDepartmentFor((req as AuthenticatedRequest).user!));
     return res.status(result.code).json(result);
   };
 
@@ -125,9 +127,22 @@ export class IncidentController {
   public delete = async (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
     const id = req.params.id as string;
-    const userId = authReq.user?.sub;
-    const userRole = authReq.user?.role;
-    const result = await DeleteIncidentService(id, userId, userRole);
+    const result = await DeleteIncidentService(id, authReq.user!, req.body);
+    return res.status(result.code).json(result);
+  };
+
+  public flag = async (req: Request, res: Response) => {
+    const result = await FlagIncidentService(req.params.id as string, req.body.reason, (req as AuthenticatedRequest).user!);
+    return res.status(result.code).json(result);
+  };
+
+  public reviewFlag = async (req: Request, res: Response) => {
+    const result = await ReviewIncidentFlagService(req.params.id as string, req.params.flagId as string, req.body, (req as AuthenticatedRequest).user!);
+    return res.status(result.code).json(result);
+  };
+
+  public listReviewFlags = async (req: Request, res: Response) => {
+    const result = await ListIncidentReviewFlagsService(Math.max(1, Number(req.query.page) || 1), (req as AuthenticatedRequest).user!);
     return res.status(result.code).json(result);
   };
 

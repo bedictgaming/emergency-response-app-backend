@@ -18,10 +18,11 @@ describe.runIf(process.env.RUN_DATABASE_TESTS === "1")("database integration", (
           ('incidents', 'merged_into_id'),
           ('incident_service_responses', 'status'),
           ('notification_outbox', 'status'),
-          ('asset_cleanup_jobs', 'status')
+          ('asset_cleanup_jobs', 'status'),
+          ('incident_review_flags', 'status')
         )
     `;
-    expect(columns).toHaveLength(7);
+    expect(columns).toHaveLength(8);
   });
 
   it("executes the session-bound authentication lookup against PostgreSQL", async () => {
