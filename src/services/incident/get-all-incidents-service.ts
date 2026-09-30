@@ -22,6 +22,7 @@ interface GetAllIncidentsFilters {
   limit?: number;
   includeTotal?: boolean;
   includeServiceSummary?: boolean;
+  includeVerifiedSummary?: boolean;
   includeAttachments?: boolean;
   includeUnits?: boolean;
   reviewDepartment?: Department | "ALL";
@@ -32,7 +33,14 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
     // Live emergency monitoring only needs the latest incidents. Avoid the
     // additional filtered COUNT query on every poll, while keeping the
     // normal dashboard pagination response unchanged.
-    const [incidents, groupedCounts, groupedServiceCounts] = await Promise.all([
+    // Intersect with authorization; keep the review list and its totals intact.
+    const verifiedFilters = {
+      ...filters,
+      scope: { AND: [filters?.scope ?? {}, { verificationStatus: "VERIFIED" as const }] },
+    };
+    const includeVerifiedSummary = filters?.includeTotal !== false
+      && filters?.includeVerifiedSummary && !filters?.responseService;
+    const [incidents, groupedCounts, groupedServiceCounts, verifiedCounts, verifiedServices] = await Promise.all([
       incidentRepository.findAll(filters),
       filters?.includeTotal === false
         ? Promise.resolve(undefined)
@@ -42,7 +50,22 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       filters?.includeTotal !== false && filters?.includeServiceSummary
         ? incidentRepository.countByResponseService(filters)
         : Promise.resolve(undefined),
+      includeVerifiedSummary ? incidentRepository.countByStatus(verifiedFilters) : Promise.resolve(undefined),
+      includeVerifiedSummary ? incidentRepository.countByResponseService(verifiedFilters) : Promise.resolve(undefined),
     ]);
+
+    const verified = verifiedCounts && {
+      total: verifiedCounts.reduce((sum, row) => sum + row._count._all, 0),
+      active: verifiedCounts.reduce((sum, row) => sum + (["OPEN", "ACTIVE"].includes(row.status) ? row._count._all : 0), 0),
+      responding: verifiedCounts.reduce((sum, row) => sum + (row.status === "RESPONDING" ? row._count._all : 0), 0),
+      resolved: verifiedCounts.reduce((sum, row) => sum + (["RESOLVED", "CLOSED"].includes(row.status) ? row._count._all : 0), 0),
+      services: {
+        fire: verifiedServices?.find(row => row.service === "FIRE")?._count._all ?? 0,
+        medical: verifiedServices?.find(row => row.service === "MEDICAL")?._count._all ?? 0,
+        police: verifiedServices?.find(row => row.service === "POLICE")?._count._all ?? 0,
+        hazard: verifiedServices?.find(row => row.service === "HAZARD")?._count._all ?? 0,
+      },
+    };
 
     const counts = filters?.responseService
       ? undefined
@@ -85,6 +108,7 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       status: "success",
       data: {
         incidents: incidents.map(protectIncidentEvidence),
+        ...(verified && { verifiedSummary: verified }),
         ...(total !== undefined && {
           pagination: { page: filters?.page ?? 1, limit: filters?.limit ?? 50, total, pages: Math.ceil(total / (filters?.limit ?? 50)) },
           summary: {

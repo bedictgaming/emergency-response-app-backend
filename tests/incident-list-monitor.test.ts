@@ -75,4 +75,51 @@ describe("incident monitor list", () => {
     expect(mocks.countByServiceStatus).toHaveBeenCalledOnce();
     expect(mocks.countByStatus).not.toHaveBeenCalled();
   });
+
+  it("separates verified analytics from all-record pagination and intersects authorization", async () => {
+    mocks.countByStatus.mockResolvedValueOnce([
+      { status: "RESOLVED", _count: { _all: 14 } },
+      { status: "CLOSED", _count: { _all: 1 } },
+    ]).mockResolvedValueOnce([{ status: "RESOLVED", _count: { _all: 14 } }]);
+    mocks.countByResponseService.mockResolvedValue([
+      { service: "FIRE", _count: { _all: 6 } },
+      { service: "MEDICAL", _count: { _all: 3 } },
+      { service: "POLICE", _count: { _all: 2 } },
+      { service: "HAZARD", _count: { _all: 3 } },
+    ]);
+    const scope = { reportedBy: "authorized-citizen" };
+    const from = new Date("2026-08-31T16:00:00Z");
+    const result = await GetAllIncidentsService({
+      scope, from, page: 2, limit: 5, statuses: ["RESOLVED", "CLOSED"], includeVerifiedSummary: true,
+    });
+    expect(result.data?.summary).toEqual({ total: 15, active: 0, responding: 0, resolved: 15 });
+    expect(result.data?.pagination).toEqual({ page: 2, limit: 5, total: 15, pages: 3 });
+    expect(result.data?.verifiedSummary).toMatchObject({ total: 14, resolved: 14, active: 0, responding: 0 });
+    expect(result.data?.verifiedSummary?.services).toEqual({ fire: 6, medical: 3, police: 2, hazard: 3 });
+    expect(mocks.countByStatus).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      scope: { AND: [scope, { verificationStatus: "VERIFIED" }] }, from,
+    }));
+    expect(mocks.countByResponseService).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { AND: [scope, { verificationStatus: "VERIFIED" }] }, from,
+    }));
+    expect(mocks.findAll).toHaveBeenCalledWith(expect.objectContaining({ scope }));
+  });
+
+  it("returns real zero verified totals rather than all-record totals", async () => {
+    mocks.countByStatus.mockResolvedValueOnce([{ status: "CLOSED", _count: { _all: 3 } }]).mockResolvedValueOnce([]);
+    mocks.countByResponseService.mockResolvedValue([]);
+    const result = await GetAllIncidentsService({ includeVerifiedSummary: true });
+    expect(result.data?.verifiedSummary).toEqual({
+      total: 0, active: 0, responding: 0, resolved: 0,
+      services: { fire: 0, medical: 0, police: 0, hazard: 0 },
+    });
+    expect(result.data?.summary.total).toBe(3);
+  });
+
+  it("does not add verified queries to monitor polls", async () => {
+    const result = await GetAllIncidentsService({ includeTotal: false, includeVerifiedSummary: true });
+    expect(result.data).not.toHaveProperty("verifiedSummary");
+    expect(mocks.countByStatus).not.toHaveBeenCalled();
+    expect(mocks.countByResponseService).not.toHaveBeenCalled();
+  });
 });

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), serviceGroupBy: vi.fn() }));
+const mocks = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), serviceGroupBy: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    incident: { findMany: mocks.findMany, count: mocks.count },
+    incident: { findMany: mocks.findMany, count: mocks.count, groupBy: mocks.groupBy },
     incidentServiceResponse: { groupBy: mocks.serviceGroupBy },
   },
 }));
@@ -64,6 +64,20 @@ describe("incident list data minimization", () => {
     await new IncidentRepository().findAll({ includeUnits: true });
     expect(mocks.findMany.mock.calls[0][0].include.incidentUnits).toEqual({
       include: { unit: true },
+    });
+  });
+
+  it("keeps verified aggregates scoped and independent of tab and page", async () => {
+    const scope = { AND: [{ reportedBy: "citizen" }, { verificationStatus: "VERIFIED" as const }] };
+    const repository = new IncidentRepository();
+    const filters = { scope, statuses: ["RESOLVED" as const], page: 3, limit: 5 };
+    await repository.countByStatus(filters);
+    await repository.countByResponseService(filters);
+    expect(mocks.groupBy).toHaveBeenCalledWith({
+      by: ["status"], where: { AND: [scope] }, _count: { _all: true },
+    });
+    expect(mocks.serviceGroupBy).toHaveBeenCalledWith({
+      by: ["service"], where: { incident: { is: { AND: [scope] } } }, _count: { _all: true },
     });
   });
 });

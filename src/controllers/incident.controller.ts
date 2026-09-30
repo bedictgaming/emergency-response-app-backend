@@ -78,6 +78,7 @@ export class IncidentController {
       limit,
       includeTotal: req.query.includeTotal !== "false",
       includeServiceSummary: req.query.includeServiceSummary === "true",
+      includeVerifiedSummary: req.query.includeVerifiedSummary === "true",
       includeAttachments: req.query.includeAttachments === "true",
       includeUnits: req.query.includeUnits === "true",
       reviewDepartment: req.query.includeReviewFlags === "true" ? reviewDepartmentFor(authReq.user!) : undefined,
