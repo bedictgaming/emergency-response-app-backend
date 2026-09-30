@@ -4,7 +4,7 @@ import { ENV } from "@/config/env";
 import type { Department } from "@/generated/prisma";
 import type { PermissionName } from "@/lib/permissions";
 
-export type JwtPayload = { sub: string; role: string; type: "access" | "refresh"; sessionId?: string; department?: Department | null; isMainAdmin?: boolean; permissions?: PermissionName[] };
+export type JwtPayload = { sub: string; role: string; type: "access" | "refresh"; exp?: number; sessionId?: string; department?: Department | null; isMainAdmin?: boolean; permissions?: PermissionName[] };
 const jwtSecret = ENV.JWT_SECRET;
 
 export enum TokenExpiry {

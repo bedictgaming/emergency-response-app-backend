@@ -1,11 +1,23 @@
 import { Request, Response } from "express";
 import { Profile } from "passport-google-oauth20";
 import { SignupUserService, LoginCredentialsService, VerifyEmailService, RefreshTokenService, ResendEmailVerificationService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
-import { TokenExpiry, toMilliseconds } from "@/lib/jwt";
+import { TokenExpiry, toMilliseconds, verifyAccessToken, type JwtPayload } from "@/lib/jwt";
 import { ENV } from "@/config/env";
 import { prisma } from "@/lib/prisma";
 
 export class AuthController {
+  // A scheduling hint only, never a credential or an authorization input.
+  // Outlive the access cookie so a tab returning from sleep can renew first.
+  private setRenewalHint(res: Response, expiresAt: number) {
+    res.cookie("sessionRenewAt", String(expiresAt - 120_000), {
+      httpOnly: false,
+      secure: ENV.NODE_ENV === "production",
+      sameSite: ENV.NODE_ENV === "production" ? "none" : "lax",
+      domain: ENV.COOKIE_DOMAIN,
+      maxAge: toMilliseconds(TokenExpiry.REFRESH_TOKEN_EXPIRES),
+    });
+  }
+
   // Helper to set cookies
   private setAuthCookies(
     res: Response,
@@ -29,6 +41,8 @@ export class AuthController {
       domain,
       maxAge: toMilliseconds(TokenExpiry.REFRESH_TOKEN_EXPIRES),
     });
+    const expiry = verifyAccessToken(tokens.accessToken)?.exp;
+    this.setRenewalHint(res, expiry ? expiry * 1000 : Date.now() + toMilliseconds(TokenExpiry.ACCESS_TOKEN_EXPIRES)!);
   }
 
   // Credentials Signup
@@ -85,6 +99,7 @@ export class AuthController {
 
     res.clearCookie("accessToken", { domain });
     res.clearCookie("refreshToken", { domain });
+    res.clearCookie("sessionRenewAt", { domain });
     return res.status(200).json({ code: 200, status: "success", message: "Logged out successfully" });
   };
 
@@ -113,8 +128,14 @@ export class AuthController {
 
   // Get Current User Session
   public me = async (req: Request, res: Response) => {
-    const userId = (req as any).user?.sub;
-    const result = await GetMeService(userId);
+    const account = req.user as JwtPayload | undefined;
+    if (!account?.sub) return res.status(401).json({ code: 401, status: "error", message: "Authentication required" });
+    const result = await GetMeService(account.sub);
+    // Bootstrap existing valid sessions without rotating on every page load.
+    // Once present, do not reset it on every profile read.
+    if (result.code === 200 && account?.exp && !req.cookies?.sessionRenewAt) {
+      this.setRenewalHint(res, account.exp * 1000);
+    }
     return res.status(result.code).json(result);
   };
 

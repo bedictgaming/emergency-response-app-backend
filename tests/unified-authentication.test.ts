@@ -12,6 +12,7 @@ describe("unified authentication routes", () => {
     const cookies = response.headers["set-cookie"] as unknown as string[];
     expect(cookies.some(cookie => cookie.startsWith("accessToken="))).toBe(true);
     expect(cookies.some(cookie => cookie.startsWith("refreshToken="))).toBe(true);
+    expect(cookies.some(cookie => cookie.startsWith("sessionRenewAt="))).toBe(true);
   });
 
   it("does not expose a parallel administrator authentication API", async () => {
