@@ -101,6 +101,29 @@ describe("incident workflow services", () => {
     expect(mocks.createIncident).not.toHaveBeenCalled();
   });
 
+  it.each(['091712345678', '09abc123456', '+639171234567', '09 171 234 567', '1e10', '', '１２３'])
+    ('rejects invalid citizen contact %j before verifying evidence or writing', async (reporterPhone) => {
+      mocks.findUser.mockResolvedValue({ role: "USER" });
+      const result = await CreateIncidentService({
+        title: "Synthetic contact validation",
+        reporterPhone,
+        proofAttachment: { publicId: "emergency-incidents/citizen-id/test", fileName: "test.png" },
+      }, "citizen-id");
+      expect(result).toMatchObject({ code: 400, message: "Contact number must contain only numbers, up to 11 digits" });
+      expect(mocks.verifyAsset).not.toHaveBeenCalled();
+      expect(mocks.transaction).not.toHaveBeenCalled();
+      expect(mocks.createIncident).not.toHaveBeenCalled();
+      expect(mocks.publish).not.toHaveBeenCalled();
+      expect(mocks.enqueueNotification).not.toHaveBeenCalled();
+    });
+
+  it.each(['0', '123', '09171234567'])('valid citizen contact %j still requires evidence', async (reporterPhone) => {
+    mocks.findUser.mockResolvedValue({ role: "USER" });
+    const result = await CreateIncidentService({ title: "Synthetic contact validation", reporterPhone }, "citizen-id");
+    expect(result).toMatchObject({ code: 400, message: "A verified proof photo is required for citizen reports" });
+    expect(mocks.createIncident).not.toHaveBeenCalled();
+  });
+
   it("rejects a citizen-provided duplicate override reason", async () => {
     mocks.findUser.mockResolvedValue({ role: "USER" });
     mocks.verifyAsset.mockResolvedValue({
@@ -139,6 +162,7 @@ describe("incident workflow services", () => {
       typeId: "type-id",
       locationId: "location-id",
       barangayId: "barangay-id",
+      reporterPhone: "+63 917 123 4567",
     }, "operator-id");
 
     expect(result.code).toBe(201);
@@ -147,6 +171,7 @@ describe("incident workflow services", () => {
         status: "RESPONDING",
         verificationStatus: "VERIFIED",
         verifiedAt: expect.any(Date),
+        description: "[Contact: +63 917 123 4567]",
       }),
     }));
   });
@@ -257,11 +282,15 @@ describe("incident workflow services", () => {
       barangayId: "barangay-id",
       latitude: 10.251,
       longitude: 123.949,
+      reporterPhone: "09171234567",
       proofAttachment: { publicId: "emergency-incidents/citizen-id/second", fileName: "second.png" },
     }, "citizen-id");
 
     expect(result.code).toBe(201);
     expect(mocks.createIncident).toHaveBeenCalledOnce();
+    expect(mocks.createIncident).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ description: "[Contact: 09171234567]" }),
+    }));
     expect(mocks.queryRaw).toHaveBeenCalledTimes(2);
     expect(mocks.queryRaw.mock.calls[1][0].join(" ")).toContain("WITH RECURSIVE lock_sequence");
     expect(mocks.queryRaw.mock.calls[1][1]).toHaveLength(9);

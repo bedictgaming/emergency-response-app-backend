@@ -68,6 +68,9 @@ export const CreateIncidentService = async (
     if (!reporter) return { code: 401, status: "error", message: "Reporter account not found" };
 
     const requiresProof = reporter.role === Role.USER;
+    if (requiresProof && data.reporterPhone !== undefined && !/^[0-9]{1,11}$/.test(data.reporterPhone)) {
+      return { code: 400, status: "error", message: "Contact number must contain only numbers, up to 11 digits" };
+    }
     if (requiresProof && !data.proofAttachment) {
       return { code: 400, status: "error", message: "A verified proof photo is required for citizen reports" };
     }

@@ -122,4 +122,16 @@ describe("incident monitor list", () => {
     expect(mocks.countByStatus).not.toHaveBeenCalled();
     expect(mocks.countByResponseService).not.toHaveBeenCalled();
   });
+
+  it('counts a multi-service report once in incident totals and once per selected service', async () => {
+    mocks.countByStatus.mockResolvedValue([{ status: 'RESPONDING', _count: { _all: 1 } }]);
+    mocks.countByResponseService.mockResolvedValue([
+      { service: 'MEDICAL', _count: { _all: 1 } },
+      { service: 'HAZARD', _count: { _all: 1 } },
+    ]);
+    const result = await GetAllIncidentsService({ includeVerifiedSummary: true, page: 3, limit: 5 });
+    expect(result.data?.verifiedSummary).toEqual({ total: 1, responding: 1, active: 0, resolved: 0,
+      services: { fire: 0, medical: 1, police: 0, hazard: 1 } });
+    expect(result.data?.summary.total).toBe(1);
+  });
 });

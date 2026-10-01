@@ -51,7 +51,7 @@ describe("database-aggregated analytics", () => {
     expect(result.rankings[0]).toMatchObject({ barangayId: "one", incidentCount: 5, activeCount: 2, resolvedCount: 3 });
     expect(result.rankings[1]).toMatchObject({ barangayId: "two", incidentCount: 0 });
     expect(mocks.groupBy).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ AND: [scope], reportedAt: { gte: from, lte: to } }),
+      where: expect.objectContaining({ verificationStatus: 'VERIFIED', AND: [scope], reportedAt: { gte: from, lte: to } }),
     }));
   });
 
@@ -66,7 +66,7 @@ describe("database-aggregated analytics", () => {
     expect(result.totalIncidents).toBe(5);
     expect(result.topType).toMatchObject({ typeId: "fire", count: 4, percentage: 80 });
     expect(mocks.groupBy).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ barangayId: "one" }),
+      where: expect.objectContaining({ verificationStatus: 'VERIFIED', barangayId: "one" }),
     }));
   });
 
@@ -87,6 +87,7 @@ describe("database-aggregated analytics", () => {
     expect(result).toMatchObject({ totalReportedThisMonth: 5, resolvedThisMonth: 3, activeThisMonth: 2, resolutionRate: 60, totalHistorical: 12, totalResolvedAllTime: 8 });
     expect(mocks.groupBy).toHaveBeenNthCalledWith(1, expect.objectContaining({
       where: expect.objectContaining({
+        verificationStatus: 'VERIFIED',
         reportedAt: {
           gte: new Date("2026-08-31T16:00:00.000Z"),
           lt: new Date("2026-09-30T16:00:00.000Z"),
@@ -111,6 +112,35 @@ describe("database-aggregated analytics", () => {
         },
       }),
     }));
+  });
+
+  it('counts every lifecycle state once and keeps closure separate from verification', async () => {
+    const groups = [
+      { status: 'OPEN', _count: { _all: 2 } },
+      { status: 'ACTIVE', _count: { _all: 3 } },
+      { status: 'RESPONDING', _count: { _all: 4 } },
+      { status: 'RESOLVED', _count: { _all: 5 } },
+      { status: 'CLOSED', _count: { _all: 6 } },
+    ];
+    mocks.groupBy.mockResolvedValue(groups);
+    const scope = { requestedServices: { has: 'MEDICAL' as const } };
+    const result = await repository.getResolvedSummary({ month: 10, year: 2026, scope, barangayId: 'one' });
+    expect(result).toMatchObject({ totalReportedThisMonth: 20, resolvedThisMonth: 11,
+      activeThisMonth: 9, resolutionRate: 55, totalHistorical: 20, totalResolvedAllTime: 11 });
+    for (const [args] of mocks.groupBy.mock.calls) {
+      expect(args.where).toMatchObject({ verificationStatus: 'VERIFIED', AND: [scope], barangayId: 'one' });
+    }
+    expect(mocks.groupBy.mock.calls[1][0].where).not.toHaveProperty('reportedAt');
+  });
+
+  it('keeps past verified records when the new month is empty', async () => {
+    mocks.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { status: 'RESOLVED', _count: { _all: 13 } },
+    ]);
+    expect(await repository.getResolvedSummary({ month: 10, year: 2026 })).toMatchObject({
+      totalReportedThisMonth: 0, resolvedThisMonth: 0, activeThisMonth: 0,
+      resolutionRate: 0, totalHistorical: 13, totalResolvedAllTime: 13,
+    });
   });
 
   it("keeps Manila month ranges half-open across February in a leap year", () => {
