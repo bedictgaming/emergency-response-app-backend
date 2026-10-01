@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import { ENV } from "@/config/env";
 import crypto from "node:crypto";
+import { assertEvidenceScope, evidenceFolder } from '@/lib/evidence-scope';
 
 // Initialize Cloudinary with env credentials
 cloudinary.config({
@@ -11,7 +12,7 @@ cloudinary.config({
 });
 
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE_BYTES = 2.5 * 1024 * 1024; // Base64 fallback, below gateway request limit
 const ALLOWED_FORMATS = new Set(["jpg", "jpeg", "png", "webp", "heic"]);
 
 export interface CloudinaryUploadResult {
@@ -63,7 +64,7 @@ async function readUploadedAsset(publicId: string) {
 
 export function generateUploadSignature(userId: string) {
   const timestamp = Math.floor(Date.now() / 1000);
-  const folder = `emergency-incidents/${userId}`;
+  const folder = evidenceFolder(userId);
   const publicId = crypto.randomUUID();
   // resource_type belongs to the URL and must not be included in the signature.
   // A signed public_id plus overwrite=false makes the signature usable for only
@@ -75,11 +76,11 @@ export function generateUploadSignature(userId: string) {
 
 export async function verifyUploadedAsset(publicId: string, userId: string): Promise<VerifiedCloudinaryAsset> {
   const asset = await readUploadedAsset(publicId);
-  if (!asset.public_id.startsWith(`emergency-incidents/${userId}/`)) {
+  if (!asset.public_id.startsWith(`${evidenceFolder(userId)}/`)) {
     throw new Error("Uploaded asset does not belong to this user");
   }
   if (!ALLOWED_FORMATS.has(String(asset.format).toLowerCase())) throw new Error("Unsupported image format");
-  if (Number(asset.bytes) > 8 * 1024 * 1024) throw new Error("Image exceeds the 8 MB limit");
+  if (Number(asset.bytes) > 5 * 1024 * 1024) throw new Error("Image exceeds the 5 MB limit");
   return {
     url: asset.secure_url,
     publicId: asset.public_id,
@@ -99,8 +100,9 @@ export async function verifyUploadedAsset(publicId: string, userId: string): Pro
  */
 export const uploadImage = async (
   base64DataUrl: string,
-  folder = "emergency-incidents"
+  folder: string
 ): Promise<CloudinaryUploadResult> => {
+  assertEvidenceScope(`${folder}/upload`);
   // 1. Validate that the string looks like a base64 data URL
   const mimeMatch = base64DataUrl.match(/^data:([^;]+);base64,/);
   if (!mimeMatch) {
@@ -119,7 +121,7 @@ export const uploadImage = async (
   const estimatedBytes = Math.ceil((base64Data.length * 3) / 4);
   if (estimatedBytes > MAX_FILE_SIZE_BYTES) {
     throw new Error(
-      `File too large (${(estimatedBytes / 1024 / 1024).toFixed(1)}MB). Maximum allowed size is 10MB.`
+      `File too large (${(estimatedBytes / 1024 / 1024).toFixed(1)}MB). The secure fallback accepts photos under 2.5MB.`
     );
   }
 
@@ -152,6 +154,8 @@ export const uploadImage = async (
  * Deletes an image from Cloudinary by its publicId.
  */
 export const deleteImage = async (publicId: string): Promise<void> => {
+  if (!ENV.EVIDENCE_DELETION_ENABLED) throw new Error('Evidence deletion is disabled');
+  assertEvidenceScope(publicId);
   const result = await cloudinary.uploader.destroy(publicId, { type: "authenticated", invalidate: true });
   if (!["ok", "not found"].includes(result.result)) throw new Error("Image deletion was not confirmed");
 };

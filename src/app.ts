@@ -12,6 +12,7 @@ import { ENV } from '@/config/env';
 import routes from '@/routes';
 import { getHttpLogLevel } from '@/lib/http-log-policy';
 import { originGuard } from '@/middlewares/origin-guard';
+import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middlewares/api-gateway';
 
 const app = express();
 
@@ -48,6 +49,8 @@ app.use(pinoHttp({
       'req.headers.authorization',
       'req.headers.cookie',
       'res.headers["set-cookie"]',
+      'req.headers["x-er-gateway-signature"]',
+      'req.headers["x-er-gateway-nonce"]',
     ],
     remove: true,
   },
@@ -71,6 +74,11 @@ app.use('/api', (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+// Root-mounted to sign/verify the original API path, including query and trailing slash.
+const gatewayGuard = createApiGatewayGuard({ required: ENV.API_GATEWAY_REQUIRED,
+  secret: ENV.API_GATEWAY_SECRET, audience: ENV.API_GATEWAY_AUDIENCE });
+app.use((req, res, next) => (req.path === '/api' || req.path.startsWith('/api/'))
+  ? gatewayGuard(req, res, next) : next());
 app.use(originGuard);
 
 // --- Core Middleware ---
@@ -87,6 +95,7 @@ app.use(cookieParser());
 app.use(passport.initialize());
 
 app.use('/api/upload', rateLimit({
+  keyGenerator: clientIpRateLimitKey,
   windowMs: 60 * 60 * 1000,
   limit: 60,
   standardHeaders: 'draft-8',

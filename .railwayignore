@@ -1,0 +1,18 @@
+# Source uploads must never include local credentials, recovery data or diagnostics.
+.env*
+*.pem
+*.key
+*.json.enc
+.database-backups/
+.railway/
+node_modules/
+dist/
+coverage/
+.git/
+.idea/
+.vscode/
+src/generated/prisma/
+tests/
+scripts/proxy-header-probe/
+scripts/evidence-recovery-guards.mjs
+scripts/recover-verified-evidence.mjs

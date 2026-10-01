@@ -20,7 +20,7 @@ describe('proof upload protocol', () => {
   });
   it('rejects oversized assets even if client validation is bypassed', async () => {
     vi.spyOn(cloudinary.api, 'resource').mockResolvedValue({ public_id: 'emergency-incidents/reporter/photo', format: 'jpg', bytes: 9 * 1024 * 1024 } as never);
-    await expect(verifyUploadedAsset('photo', 'reporter')).rejects.toThrow('8 MB');
+    await expect(verifyUploadedAsset('photo', 'reporter')).rejects.toThrow('5 MB');
   });
   it('retries a transient Cloudinary 404 immediately after upload', async () => {
     vi.useFakeTimers();

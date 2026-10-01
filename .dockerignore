@@ -1,5 +1,10 @@
 node_modules
 dist
-.env
+.env*
+*.pem
+*.key
+*.json.enc
+.database-backups
+.git
 .idea
 coverage
