@@ -2,10 +2,11 @@ import { Request, Response } from "express";
 import { uploadImage, generateUploadSignature } from "@/lib/cloudinary";
 import { JwtPayload } from "@/lib/jwt";
 import { consumePhotoUploadAllowance } from "@/lib/upload-quota";
+import { evidenceFolder } from '@/lib/evidence-scope';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
-const MAX_BASE64_SIZE = 14 * 1024 * 1024; // ~10MB image = ~14MB base64
+const MAX_BASE64_SIZE = 3.5 * 1024 * 1024; // bounded 2.5MB-photo fallback
 
 export class UploadController {
   public signature = async (req: Request, res: Response) => {
@@ -55,7 +56,7 @@ export class UploadController {
         return res.status(413).json({
           code: 413,
           status: "error",
-          message: "Image exceeds maximum allowed size of 10MB.",
+          message: "The secure fallback accepts photos under 2.5MB. Use direct upload for photos up to 5MB.",
         });
       }
 
@@ -85,10 +86,10 @@ export class UploadController {
       }
 
       // --- Upload to Cloudinary ---
-      const result = await uploadImage(imageData, `emergency-incidents/${authReq.user!.sub}`);
+      const result = await uploadImage(imageData, evidenceFolder(authReq.user!.sub));
 
       console.log(
-        `[Upload] User ${authReq.user?.sub} uploaded incident photo: ${result.publicId} (${(result.bytes / 1024).toFixed(0)}KB)`
+        `[Upload] Incident photo uploaded (${(result.bytes / 1024).toFixed(0)}KB)`
       );
 
       return res.status(200).json({

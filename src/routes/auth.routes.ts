@@ -7,6 +7,7 @@ import passport from "@/lib/passport";
 import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { ENV } from "@/config/env";
+import { clientIpRateLimitKey } from "@/middlewares/api-gateway";
 
 // Initialize
 const router = Router();
@@ -14,6 +15,7 @@ const authController = new AuthController();
 const authMiddleware = new AuthMiddleware();
 
 const authAttemptLimiter = rateLimit({
+  keyGenerator: clientIpRateLimitKey,
   windowMs: 15 * 60 * 1000,
   limit: 30,
   standardHeaders: "draft-8",
@@ -23,6 +25,7 @@ const authAttemptLimiter = rateLimit({
 });
 
 const accountMessageLimiter = rateLimit({
+  keyGenerator: clientIpRateLimitKey,
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: "draft-8",
@@ -31,6 +34,7 @@ const accountMessageLimiter = rateLimit({
 });
 
 const tokenRefreshLimiter = rateLimit({
+  keyGenerator: clientIpRateLimitKey,
   windowMs: 15 * 60 * 1000,
   limit: 120,
   standardHeaders: "draft-8",
@@ -39,6 +43,7 @@ const tokenRefreshLimiter = rateLimit({
 });
 
 const googleOAuthLimiter = rateLimit({
+  keyGenerator: clientIpRateLimitKey,
   windowMs: 15 * 60 * 1000,
   limit: 120,
   standardHeaders: "draft-8",

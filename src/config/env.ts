@@ -3,6 +3,33 @@ import { z } from 'zod';
 import { isIP } from 'node:net';
 dotenv.config();
 
+for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED']) {
+  if (process.env[name] !== undefined && !['true', 'false'].includes(process.env[name]!)) {
+    throw new Error(`Invalid boolean configuration: ${name}`);
+  }
+}
+const gatewayRequired = process.env.API_GATEWAY_REQUIRED === 'true';
+const gatewaySecret = process.env.API_GATEWAY_SECRET || '';
+const gatewayAudience = process.env.API_GATEWAY_AUDIENCE || '';
+// NODE_ENV is production on both Railway environments. Use the provider's
+// environment identity or the staging gateway audience for containment.
+const isolatedStaging = process.env.RAILWAY_ENVIRONMENT_NAME === 'staging'
+  || gatewayAudience === 'emergency-response-staging-v1';
+const evidenceNamespace = process.env.EVIDENCE_NAMESPACE
+  || (isolatedStaging ? 'emergency-incidents-staging' : 'emergency-incidents');
+const evidenceDeletionEnabled = process.env.EVIDENCE_DELETION_ENABLED === 'true';
+const orphanEvidenceSweepEnabled = process.env.ORPHAN_EVIDENCE_SWEEP_ENABLED === 'true';
+if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(evidenceNamespace)
+  || (isolatedStaging && (evidenceNamespace === 'emergency-incidents'
+    || process.env.BACKGROUND_JOBS_ENABLED !== 'false' || evidenceDeletionEnabled || orphanEvidenceSweepEnabled))
+  || (orphanEvidenceSweepEnabled && !evidenceDeletionEnabled)) {
+  throw new Error('Unsafe evidence namespace or cleanup configuration');
+}
+if (gatewayRequired && (gatewaySecret.length < 32 || gatewaySecret === process.env.JWT_SECRET || !/^[a-z0-9-]{1,80}$/.test(gatewayAudience)
+  || Boolean(process.env.TRUSTED_PROXY_CIDRS?.trim()))) {
+  throw new Error('API gateway requires a dedicated secret, audience and disabled proxy trust');
+}
+
 const trustedProxyCidrs = (process.env.TRUSTED_PROXY_CIDRS || '').split(',').map((value) => value.trim()).filter(Boolean);
 for (const entry of trustedProxyCidrs) {
   const [address, prefix, extra] = entry.split('/');
@@ -23,6 +50,13 @@ const raw = {
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:8000',
   COOKIE_DOMAIN: process.env.COOKIE_DOMAIN || undefined,
   TRUSTED_PROXY_CIDRS: trustedProxyCidrs,
+  API_GATEWAY_REQUIRED: gatewayRequired,
+  API_GATEWAY_SECRET: gatewaySecret,
+  API_GATEWAY_AUDIENCE: gatewayAudience,
+  BACKGROUND_JOBS_ENABLED: process.env.BACKGROUND_JOBS_ENABLED !== 'false',
+  EVIDENCE_NAMESPACE: evidenceNamespace,
+  EVIDENCE_DELETION_ENABLED: evidenceDeletionEnabled,
+  ORPHAN_EVIDENCE_SWEEP_ENABLED: orphanEvidenceSweepEnabled,
   WEB_PUSH_PUBLIC_KEY: process.env.WEB_PUSH_PUBLIC_KEY || '',
   WEB_PUSH_PRIVATE_KEY: process.env.WEB_PUSH_PRIVATE_KEY || '',
   WEB_PUSH_SUBJECT: process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com',
