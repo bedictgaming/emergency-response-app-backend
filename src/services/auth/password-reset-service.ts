@@ -35,7 +35,7 @@ export async function ResetPasswordService(token: string, password: string) {
     where: { token: digest(token), type: TokenType.PASSWORD_RESET, consumedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
   });
   if (!stored) return { code: 400, status: "error", message: "Invalid or expired password-reset token" };
-  const hashed = hashPassword(password);
+  const hashed = await hashPassword(password);
   const consumed = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${stored.userId} FOR UPDATE`;
     const claim = await tx.token.updateMany({

@@ -5,6 +5,10 @@ import { protectIncidentEvidence } from "@/lib/evidence";
 const incidentRepository = new IncidentRepository();
 
 interface GetAllIncidentsFilters {
+  search?: string;
+  typeName?: string;
+  historyFrom?: Date;
+  historyBefore?: Date;
   responderId?: string;
   status?: IncidentStatus;
   statuses?: IncidentStatus[];

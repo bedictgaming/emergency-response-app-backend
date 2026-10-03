@@ -11,6 +11,17 @@ vi.mock("@/lib/prisma", () => ({
 import { IncidentRepository } from "@/repositories/incident.repository";
 
 describe("incident list data minimization", () => {
+  it('applies the same bounded search and half-open period to list and grouped totals without losing scope', async () => {
+    const scope = { reportedBy: 'citizen' };
+    const filters = { scope, search: 'older report', typeName: 'Fire Outbreak', historyFrom: new Date('2026-09-30T16:00:00Z'), historyBefore: new Date('2026-10-31T16:00:00Z'), page: 2, limit: 50, includeUnits: true };
+    const repository = new IncidentRepository(); await repository.findAll(filters); await repository.countByStatus(filters);
+    const list = mocks.findMany.mock.calls[0][0];
+    expect(list.skip).toBe(50); expect(list.take).toBe(50);
+    expect(list.orderBy).toEqual([{ reportedAt: 'desc' }, { incidentId: 'desc' }]);
+    expect(list.where.AND[0]).toEqual(scope);
+    expect(list.where.AND[1]).toMatchObject({ OR: expect.any(Array), reportedAt: { gte: filters.historyFrom, lt: filters.historyBefore } });
+    expect(mocks.groupBy.mock.calls[0][0].where.AND).toEqual(list.where.AND);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findMany.mockResolvedValue([]);

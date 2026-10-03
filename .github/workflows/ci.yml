@@ -1,0 +1,32 @@
+name: Backend checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  local-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://audit:audit@127.0.0.1:65432/audit_disposable
+      DIRECT_URL: postgresql://audit:audit@127.0.0.1:65432/audit_disposable
+      RUN_DATABASE_TESTS: '0'
+      RUN_DISPOSABLE_DELIVERY_TESTS: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run build
+      - run: npm run check:runtime
+      - run: npm test -- --maxWorkers=2
+      - run: node scripts/check-dependency-audit.mjs
+      - run: docker build -t emergency-response-ci .
+      - name: Import production-only runtime without contacting providers
+        run: >-
+          docker run --rm -e NODE_ENV=test -e DATABASE_URL=postgresql://audit:audit@127.0.0.1:65432/audit_disposable
+          emergency-response-ci node --input-type=module -e "await import('./dist/app.js'); await import('./dist/lib/jobs.js');"
+      # Builds/tests only: no production secrets, provider calls or migrations.

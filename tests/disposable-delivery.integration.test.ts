@@ -96,7 +96,7 @@ async function createAccount(role: "USER" | "ADMIN", department?: "MAIN" | "FIRE
     data: {
       email,
       name: `Disposable test ${role}`,
-      password: hashPassword(testPassword),
+      password: await hashPassword(testPassword),
       emailVerified: new Date(),
       role,
       department,

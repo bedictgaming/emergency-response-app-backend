@@ -12,6 +12,7 @@
 const adapter = new ResilientPrismaPg({
   connectionString,
   max: 5,
+  connectionTimeoutMillis: 10_000,
   idleTimeoutMillis: 60_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,

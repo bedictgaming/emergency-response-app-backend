@@ -116,7 +116,9 @@ export class AuthController {
         return res.redirect(`${frontendUrl}/login?oauth=success`);
     }
 
-    return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
+    const reason = result.errorCode === "oauth_link_required" || result.errorCode === "oauth_email_verification_required"
+      ? result.errorCode : "oauth_failed";
+    return res.redirect(`${frontendUrl}/login?oauth=${reason}`);
   };
 
   // Resend Email Verification

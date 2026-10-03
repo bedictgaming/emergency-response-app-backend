@@ -18,6 +18,20 @@ import { AnalyticsRepository } from "../src/repositories/analytics.repository";
 import { getManilaMonthRange } from "../src/lib/manila-calendar";
 
 describe("database-aggregated analytics", () => {
+  it('reconciles every lifecycle bucket, including responding and unknown barangays', async () => {
+    mocks.groupBy.mockResolvedValue([
+      { barangayId: 'one', status: 'OPEN', _count: { _all: 1 } },
+      { barangayId: 'one', status: 'ACTIVE', _count: { _all: 2 } },
+      { barangayId: 'one', status: 'RESPONDING', _count: { _all: 3 } },
+      { barangayId: 'one', status: 'RESOLVED', _count: { _all: 4 } },
+      { barangayId: 'one', status: 'CLOSED', _count: { _all: 5 } },
+      { barangayId: null, status: 'RESPONDING', _count: { _all: 1 } },
+    ]);
+    const result = await repository.getIncidentsByBarangay();
+    expect(result.totalIncidents).toBe(16);
+    for (const area of result.rankings) expect(area.activeCount + area.respondingCount + area.resolvedCount).toBe(area.incidentCount);
+    expect(result.rankings.find(area => area.barangayId === 'UNSPECIFIED')).toMatchObject({ incidentCount: 1, respondingCount: 1, name: 'Barangay unavailable' });
+  });
   const repository = new AnalyticsRepository();
 
   beforeEach(() => {

@@ -22,5 +22,8 @@ export const listIncidentsSchema = z.object({
     reportedBy: uuidFilter,
     from: dateFilter,
     to: dateFilter,
+    search: z.string().trim().max(160).optional(),
+    typeName: z.string().trim().max(120).optional(),
+    period: z.enum(["THIS_MONTH", "LAST_30_DAYS"]).optional(),
   }),
 });

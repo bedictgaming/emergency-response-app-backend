@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { deleteImage } from "@/lib/cloudinary";
 import { sendPushNotification } from "@/lib/push";
+import { MAX_PUSH_JOB_ATTEMPTS, PushDeliveryError } from "@/lib/push-subscription";
 import { backgroundJobRetryDelayMs, isTransientJobInfrastructureError } from "@/lib/background-job-resilience";
 import cloudinary from "@/lib/cloudinary";
 import { ENV } from '@/config/env';
@@ -61,9 +62,9 @@ export async function processPendingJobs() {
       prisma.notificationOutbox.updateMany({ where: { status: "PROCESSING", updatedAt: { lt: staleBefore } }, data: { status: "FAILED", nextAttemptAt: new Date(), lastError: "Recovered after interrupted worker" } }),
       ...(ENV.EVIDENCE_DELETION_ENABLED ? [prisma.assetCleanupJob.updateMany({ where: { status: "PROCESSING", updatedAt: { lt: staleBefore } }, data: { status: "FAILED", nextAttemptAt: new Date(), lastError: "Recovered after interrupted worker" } })] : []),
     ]);
-    const notifications = await prisma.notificationOutbox.findMany({ where: { status: { in: ["PENDING", "FAILED"] }, nextAttemptAt: { lte: new Date() } }, take: 10, orderBy: { createdAt: "asc" } });
+    const notifications = await prisma.notificationOutbox.findMany({ where: { status: { in: ["PENDING", "FAILED"] }, attempts: { lt: MAX_PUSH_JOB_ATTEMPTS }, nextAttemptAt: { lte: new Date() } }, take: 10, orderBy: { createdAt: "asc" } });
     for (const job of notifications) {
-      const claimed = await prisma.notificationOutbox.updateMany({ where: { notificationOutboxId: job.notificationOutboxId, status: job.status }, data: { status: "PROCESSING" } });
+      const claimed = await prisma.notificationOutbox.updateMany({ where: { notificationOutboxId: job.notificationOutboxId, status: job.status, attempts: { lt: MAX_PUSH_JOB_ATTEMPTS } }, data: { status: "PROCESSING" } });
       if (!claimed.count) continue;
       try {
         const payload = job.payload as { title: string; body: string; data?: Record<string, string> };
@@ -71,7 +72,11 @@ export async function processPendingJobs() {
         await prisma.notificationOutbox.update({ where: { notificationOutboxId: job.notificationOutboxId }, data: { status: "COMPLETED", completedAt: new Date(), attempts: { increment: 1 }, lastError: null } });
       } catch (error) {
         const attempts = job.attempts + 1;
-        await prisma.notificationOutbox.update({ where: { notificationOutboxId: job.notificationOutboxId }, data: { status: "FAILED", attempts, nextAttemptAt: retryAt(attempts), lastError: String(error).slice(0, 1000) } });
+        await prisma.notificationOutbox.update({ where: { notificationOutboxId: job.notificationOutboxId }, data: {
+          status: "FAILED", attempts, nextAttemptAt: retryAt(attempts),
+          ...(error instanceof PushDeliveryError ? { userIds: error.retryUserIds } : {}),
+          lastError: attempts >= MAX_PUSH_JOB_ATTEMPTS ? "Push retry limit reached; operator review required" : "Push delivery failed; retry scheduled",
+        } });
       }
     }
 

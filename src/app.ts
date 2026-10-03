@@ -13,6 +13,7 @@ import routes from '@/routes';
 import { getHttpLogLevel } from '@/lib/http-log-policy';
 import { originGuard } from '@/middlewares/origin-guard';
 import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middlewares/api-gateway';
+import { createReadinessCheck } from '@/lib/readiness';
 
 const app = express();
 
@@ -117,11 +118,12 @@ app.get('/healthz', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) });
 });
 
+const checkReadiness = createReadinessCheck(() => prisma.$queryRaw`SELECT 1`);
 app.get('/readyz', async (_req: Request, res: Response) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
+  res.setHeader('Cache-Control', 'no-store');
+  if (await checkReadiness()) {
     res.status(200).json({ status: 'ready' });
-  } catch {
+  } else {
     res.status(503).json({ status: 'not_ready', dependency: 'database' });
   }
 });

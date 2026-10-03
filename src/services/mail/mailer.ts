@@ -18,6 +18,9 @@ function buildTransporter(): Transporter {
   }
 
   return nodemailer.createTransport({
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 10000,
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT),
     secure: process.env.SMTP_SECURE === "true",

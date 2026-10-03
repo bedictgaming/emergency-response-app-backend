@@ -22,7 +22,7 @@ async function bootstrapMainAdministrator() {
       data: {
         name,
         email,
-        password: hashPassword(password),
+        password: await hashPassword(password),
         role: Role.ADMIN,
         department: Department.MAIN,
         isMainAdmin: true,

@@ -40,23 +40,23 @@ export class AnalyticsRepository {
             reportedAt: { ...(filters?.from && { gte: filters.from }), ...(filters?.to && { lte: filters.to }) },
           }),
           ...(filters?.typeId && { typeId: filters.typeId }),
-          barangayId: { not: null },
         },
         _count: { _all: true },
       }),
     ]);
-    const byBarangay = new Map<string, { count: number; active: number; resolved: number }>();
+    const byBarangay = new Map<string, { count: number; active: number; responding: number; resolved: number }>();
     for (const row of counts) {
-      if (!row.barangayId) continue;
-      const item = byBarangay.get(row.barangayId) ?? { count: 0, active: 0, resolved: 0 };
+      const key = row.barangayId ?? "UNSPECIFIED";
+      const item = byBarangay.get(key) ?? { count: 0, active: 0, responding: 0, resolved: 0 };
       item.count += row._count._all;
       if (row.status === IncidentStatus.ACTIVE || row.status === IncidentStatus.OPEN) item.active += row._count._all;
+      if (row.status === IncidentStatus.RESPONDING) item.responding += row._count._all;
       if (row.status === IncidentStatus.RESOLVED || row.status === IncidentStatus.CLOSED) item.resolved += row._count._all;
-      byBarangay.set(row.barangayId, item);
+      byBarangay.set(key, item);
     }
     const totalIncidents = Array.from(byBarangay.values()).reduce((total, item) => total + item.count, 0);
 
-    const rankings = barangays
+    const rankings = [...barangays, ...(byBarangay.has("UNSPECIFIED") ? [{ barangayId: "UNSPECIFIED", name: "Barangay unavailable", status: "INACTIVE" }] : [])]
       .map((b) => {
         const grouped = byBarangay.get(b.barangayId);
         const count = grouped?.count ?? 0;
@@ -74,6 +74,7 @@ export class AnalyticsRepository {
           status: b.status,
           incidentCount: count,
           activeCount,
+          respondingCount: grouped?.responding ?? 0,
           resolvedCount,
           percentage,
           riskLevel,

@@ -4,13 +4,14 @@ export const signupSchema = z.object({
   body: z.object({
     name: z
       .string({ message: "Name is required" })
-      .min(2, "Name must be at least 2 characters"),
+      .min(2, "Name must be at least 2 characters").max(120),
     email: z
       .string({ message: "Email is required" })
-      .email("Invalid email format"),
+      .email("Invalid email format").max(254).transform(value => value.trim().toLowerCase()),
     password: z
       .string({ message: "Password is required" })
       .min(8, "Password must be at least 8 characters")
+      .max(128)
       .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
       .regex(/[0-9]/, "Password must contain at least one number"),
   }),

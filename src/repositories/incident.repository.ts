@@ -27,6 +27,10 @@ interface UpdateIncidentData {
 }
 
 interface IncidentFilters {
+  search?: string;
+  typeName?: string;
+  historyFrom?: Date;
+  historyBefore?: Date;
   responderId?: string;
   status?: IncidentStatus;
   statuses?: IncidentStatus[];
@@ -52,11 +56,31 @@ const reviewFlagInclude = (department?: Department | "ALL") => department ? {
   orderBy: { createdAt: "asc" as const },
 } : false;
 
+// Always intersect search/date constraints with authorization, never replace it.
+const historyWhere = (filters?: IncidentFilters): Prisma.IncidentWhereInput => ({
+  ...(filters?.search && { OR: [
+    { title: { contains: filters.search, mode: "insensitive" } },
+    { description: { contains: filters.search, mode: "insensitive" } },
+    { barangay: { is: { name: { contains: filters.search, mode: "insensitive" } } } },
+    { type: { is: { typeName: { contains: filters.search, mode: "insensitive" } } } },
+    { reporter: { is: { name: { contains: filters.search, mode: "insensitive" } } } },
+  ] }),
+  ...(filters?.typeName && { type: { is: { typeName: { equals: filters.typeName, mode: "insensitive" } } } }),
+  ...((filters?.historyFrom || filters?.historyBefore) && { reportedAt: {
+    ...(filters.historyFrom && { gte: filters.historyFrom }),
+    ...(filters.historyBefore && { lt: filters.historyBefore }),
+  } }),
+});
+const historyScope = (filters?: IncidentFilters) => {
+  const where = historyWhere(filters);
+  return Object.keys(where).length ? [where] : [];
+};
+
 export class IncidentRepository {
   async findAll(filters?: IncidentFilters) {
     return await prisma.incident.findMany({
       where: {
-        AND: [filters?.scope ?? {}],
+        AND: [filters?.scope ?? {}, ...historyScope(filters)],
         ...(filters?.responderId && responderIncidentScope(filters.responderId)),
         ...(filters?.statuses?.length
           ? { status: { in: filters.statuses } }
@@ -95,7 +119,7 @@ export class IncidentRepository {
         serviceResponses: true,
         reviewFlags: reviewFlagInclude(filters?.reviewDepartment),
       },
-      orderBy: { reportedAt: "desc" },
+      orderBy: [{ reportedAt: "desc" }, { incidentId: "desc" }],
       skip: ((filters?.page ?? 1) - 1) * (filters?.limit ?? 50),
       take: filters?.limit ?? 50,
     });
@@ -103,7 +127,7 @@ export class IncidentRepository {
 
   async count(filters?: IncidentFilters) {
     return prisma.incident.count({ where: {
-      AND: [filters?.scope ?? {}],
+      AND: [filters?.scope ?? {}, ...historyScope(filters)],
       ...(filters?.responderId && responderIncidentScope(filters.responderId)),
       ...(filters?.statuses?.length
         ? { status: { in: filters.statuses } }
@@ -121,7 +145,7 @@ export class IncidentRepository {
     return prisma.incident.groupBy({
       by: ["status"],
       where: {
-        AND: [filters?.scope ?? {}],
+        AND: [filters?.scope ?? {}, ...historyScope(filters)],
         ...(filters?.responderId && responderIncidentScope(filters.responderId)),
         ...(filters?.severityLevel && { severityLevel: filters.severityLevel }),
         ...(filters?.typeId && { typeId: filters.typeId }),
@@ -141,7 +165,7 @@ export class IncidentRepository {
         service,
         incident: {
           is: {
-            AND: [filters.scope ?? {}],
+            AND: [filters.scope ?? {}, ...historyScope(filters)],
             ...(filters.responderId && responderIncidentScope(filters.responderId)),
             ...(filters.severityLevel && { severityLevel: filters.severityLevel }),
             ...(filters.typeId && { typeId: filters.typeId }),
@@ -162,7 +186,7 @@ export class IncidentRepository {
       where: {
         incident: {
           is: {
-            AND: [filters?.scope ?? {}],
+            AND: [filters?.scope ?? {}, ...historyScope(filters)],
             ...(filters?.responderId && responderIncidentScope(filters.responderId)),
             ...(filters?.severityLevel && { severityLevel: filters.severityLevel }),
             ...(filters?.typeId && { typeId: filters.typeId }),

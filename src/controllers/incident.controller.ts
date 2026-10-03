@@ -14,6 +14,7 @@ import {
 import { Department, IncidentStatus, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { departmentIncidentScope, departmentService } from "@/lib/department-access";
 import { isMainAdministrator } from "@/lib/permissions";
+import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
 import { FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
@@ -59,6 +60,14 @@ export class IncidentController {
       operationalScope = departmentIncidentScope({ ...authReq.user!, isMainAdmin: false, department: department as Department });
     }
     const filters = {
+      ...(typeof req.query.search === "string" && { search: req.query.search.trim() }),
+      ...(typeof req.query.typeName === "string" && { typeName: req.query.typeName }),
+      ...(req.query.period === "THIS_MONTH" && (() => {
+        const { month, year } = getCurrentManilaMonth();
+        const { start, end } = getManilaMonthRange(month, year);
+        return { historyFrom: start, historyBefore: end };
+      })()),
+      ...(req.query.period === "LAST_30_DAYS" && { historyFrom: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), historyBefore: new Date() }),
       ...(authReq.user?.role === "RESPONDER" && { responderId: authReq.user.sub }),
       ...(operationalScope && { scope: operationalScope }),
       ...(status && { status: status as IncidentStatus }),

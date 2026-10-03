@@ -1,6 +1,6 @@
 import { UserRepository } from "@/repositories/user.repository";
 import { TokenRepository } from "@/repositories/token.repository";
-import { verifyPassword } from "@/utils/password";
+import { verifyPassword, PasswordProcessingBusy } from "@/utils/password";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
 import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
 
@@ -12,7 +12,7 @@ export async function LoginCredentialsService(email: string, password: string) {
     // Validate User Credentials
     const normalizedEmail = email.trim().toLowerCase();
     const user = await userRepository.findByEmail(normalizedEmail);
-    if (!user || !user.password || !verifyPassword(password, user.password)) {
+    if (!user || !user.password || !(await verifyPassword(password, user.password))) {
       return { code: 401, status: "error", message: "Invalid email or password" };
     }
 
@@ -59,7 +59,8 @@ export async function LoginCredentialsService(email: string, password: string) {
       },
     };
   } catch (error) {
-    console.error("LoginCredentialService Error", error);
+    if (error instanceof PasswordProcessingBusy) return { code: 503, status: "error", message: "Sign-in processing is busy. Please try again shortly." };
+    console.error("Credential login unavailable; no account or credential details logged");
     return { code: 500, status: "error", message: "Unable to login account" };
   }
 }

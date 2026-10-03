@@ -1,13 +1,14 @@
 import crypto from "crypto";
 import { UserRepository } from "@/repositories/user.repository";
 import { TokenRepository } from "@/repositories/token.repository";
-import { hashPassword } from "@/utils/password";
+import { hashPassword, PasswordProcessingBusy } from "@/utils/password";
 import { renderTemplate } from "@/utils/template";
 import { sendEmail } from "@/services/mail/mailer";
 
 const isDev = process.env.NODE_ENV !== "production";
 
 export async function SignupUserService(name: string, email: string, password: string) {
+  email = email.trim().toLowerCase();
   const userRepository = new UserRepository();
   const tokenRepository = new TokenRepository();
 
@@ -23,7 +24,7 @@ export async function SignupUserService(name: string, email: string, password: s
       const created = await userRepository.create({
         name,
         email,
-        password: hashPassword(password),
+        password: await hashPassword(password),
         emailVerified: new Date(), // auto-verify immediately
       });
 
@@ -39,9 +40,12 @@ export async function SignupUserService(name: string, email: string, password: s
     const token = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24hrs
 
-    const created = await userRepository.create({ name, email, password: hashPassword(password) });
+    const created = await userRepository.create({ name, email, password: await hashPassword(password) });
 
-    await tokenRepository.createEmailVerificationToken({ userId: created.id, token, expiresAt });
+    try { await tokenRepository.createEmailVerificationToken({ userId: created.id, token, expiresAt }); } catch {
+      console.warn("Verification token creation unavailable; account retained for resend");
+      return { code: 200, status: "success", message: "Account created, but verification delivery is unavailable. Use Resend verification after one minute.", data: { user: created } };
+    }
 
     const emailVerificationURL = `${process.env.BACKEND_URL}/api/auth/v1/verify-email?token=${encodeURIComponent(token)}`;
 
@@ -51,11 +55,14 @@ export async function SignupUserService(name: string, email: string, password: s
       expiresAt: expiresAt.toUTCString(),
     });
 
-    await sendEmail({
+    try { await sendEmail({
       to: created.email ?? email,
       subject: "Verify your email address",
       html,
-    });
+    }); } catch {
+      console.warn("Verification email delivery pending; account retained for resend");
+      return { code: 200, status: "success", message: "Account created, but verification email delivery failed. Use Resend verification after one minute.", data: { user: created } };
+    }
 
     return {
       code: 200,
@@ -65,7 +72,8 @@ export async function SignupUserService(name: string, email: string, password: s
     };
 
   } catch (error) {
-    console.error("SignupUserService error", error);
+    if (error instanceof PasswordProcessingBusy) return { code: 503, status: "error", message: "Sign-in processing is busy. Please try again shortly." };
+    console.error("Signup unavailable; no account or credential details logged");
     return { code: 500, status: "error", message: "Unable to create account" };
   }
 }

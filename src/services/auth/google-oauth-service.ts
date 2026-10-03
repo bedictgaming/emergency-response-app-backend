@@ -4,6 +4,7 @@ import { OAuthAccountRepository } from "@/repositories/oauth-account.repository"
 import { TokenRepository } from "@/repositories/token.repository";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
 import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
+import { z } from "zod";
 
 export async function GoogleOAuthService(profile: Profile) {
   const userRepository = new UserRepository();
@@ -11,8 +12,10 @@ export async function GoogleOAuthService(profile: Profile) {
   const tokenRepository = new TokenRepository();
 
   try {
-    const googleId = profile.id;
-    const email = profile.emails?.[0]?.value ?? null;
+    const googleId = profile?.id;
+    if (profile?.provider !== "google" || typeof googleId !== "string" || !/^[a-zA-Z0-9_-]{1,255}$/.test(googleId)) {
+      return { code: 400, status: "error", message: "Invalid Google identity" };
+    }
     const name = profile.displayName ?? null;
 
     // 1. Check if we already have an OAuthAccount for this Google ID
@@ -24,44 +27,35 @@ export async function GoogleOAuthService(profile: Profile) {
       // Returning Google user — use the linked userId directly
       userId = existingOAuth.userId;
     } else {
-      // New Google login — check if email already exists as a credential account
-      let userDbId: string | undefined;
-
-      if (email) {
-        const existingUser = await userRepository.findByEmail(email);
-        if (existingUser) {
-          userDbId = existingUser.id;
-          // Existing credential user logging in via Google for the first time → mark verified
-          if (!existingUser.emailVerified) {
-            await userRepository.markEmailVerified(existingUser.id);
-          }
-        }
+      const email = profile.emails?.[0]?.value?.trim().toLowerCase();
+      const claims = profile._json as { email?: unknown; email_verified?: unknown; hd?: unknown };
+      // Passport's OpenID profile comes from Google's authenticated userinfo
+      // response. Third-party email_verified alone is not current ownership.
+      const verifiedEmail = (profile.emails?.[0] as { verified?: unknown } | undefined)?.verified === true;
+      const hostedDomain = typeof claims?.hd === "string" ? claims.hd.trim().toLowerCase() : "";
+      const authoritative = email?.endsWith("@gmail.com") ||
+        (hostedDomain.length > 0 && email?.split("@")[1] === hostedDomain);
+      if (!email || !z.email().safeParse(email).success || !verifiedEmail || claims?.email_verified !== true ||
+          typeof claims.email !== "string" || claims.email.trim().toLowerCase() !== email || !authoritative) {
+        return { code: 403, status: "error", errorCode: "oauth_email_verification_required", message: "Use email registration or a verified Gmail or Google Workspace account" };
       }
-
-      if (!userDbId) {
-        // Brand-new user: create account and auto-verify email (Google confirms it)
-        const newUser = await userRepository.create({
-          name,
-          email,
-          emailVerified: new Date(),
-        });
-        userDbId = newUser.id;
+      // Email equality never grants access to an existing account (including an
+      // admin), verifies it, or creates a provider link. Explicit authenticated
+      // linking would need a separate step-up flow; this endpoint is sign-in only.
+      if (await userRepository.findByEmail(email)) {
+        return { code: 409, status: "error", errorCode: "oauth_link_required", message: "Use your existing account's email and password" };
       }
-
-      // Link the Google account to this user
-      await oauthAccountRepository.create({
-        provider: "google",
-        providerAccountId: googleId,
-        userId: userDbId,
-      });
-
-      userId = userDbId;
+      const created = await oauthAccountRepository.createUserWithAccount({ providerAccountId: googleId, name, email });
+      userId = created.userId;
     }
 
     // 2. Load user for role (needed to sign JWT)
     const user = await userRepository.findById(userId);
     if (!user) {
       return { code: 500, status: "error", message: "User not found after Google OAuth" };
+    }
+    if (user.status !== "ACTIVE") {
+      return { code: 403, status: "error", message: "This account is not active" };
     }
     if (!hasValidOperationalAssignment(user)) {
       return { code: 403, status: "error", message: "This operational account has no valid department assignment" };
@@ -88,7 +82,12 @@ export async function GoogleOAuthService(profile: Profile) {
       },
     };
   } catch (error) {
-    console.error("GoogleOAuthService error", error);
+    // A concurrent sign-in must not fall back to linking by email. Nested writes
+    // roll back on either unique constraint; retry the complete OAuth flow.
+    if ((error as { code?: string })?.code === "P2002") {
+      return { code: 409, status: "error", message: "Please retry Google sign-in" };
+    }
+    console.error("GoogleOAuthService failed");
     return { code: 500, status: "error", message: "Unable to process Google OAuth" };
   }
 }

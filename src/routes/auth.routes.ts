@@ -33,6 +33,15 @@ const accountMessageLimiter = rateLimit({
   message: { code: 429, status: "error", message: "Too many account-message requests. Try again later." },
 });
 
+const signupLimiter = rateLimit({
+  keyGenerator: clientIpRateLimitKey,
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { code: 429, status: "error", message: "Registration limit reached. Try again later." },
+});
+
 const tokenRefreshLimiter = rateLimit({
   keyGenerator: clientIpRateLimitKey,
   windowMs: 15 * 60 * 1000,
@@ -52,7 +61,7 @@ const googleOAuthLimiter = rateLimit({
 });
 
 // Authentication Routes
-router.post("/v1/signup", authAttemptLimiter, validateSchema(signupSchema), authController.signup);
+router.post("/v1/signup", signupLimiter, accountMessageLimiter, validateSchema(signupSchema), authController.signup);
 router.post("/v1/login", authAttemptLimiter, validateSchema(loginSchema), authController.login);
 router.get("/v1/verify-email", validateSchema(verifyEmailSchema), authController.verifyEmail);
 router.post("/v1/resend-email-verification", accountMessageLimiter, validateSchema(resendVerificationSchema), authController.resendEmailVerification);
