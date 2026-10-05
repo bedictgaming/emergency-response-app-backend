@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:17-bookworm
+        image: postgres:18-bookworm
         env:
           POSTGRES_USER: alert_test
           POSTGRES_PASSWORD: synthetic_ci_only
