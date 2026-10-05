@@ -15,6 +15,7 @@ it("the installed web-push transport uses the guarded agent and rejects redirect
   const request = vi.spyOn(https, "request").mockImplementation(((options, callback) => {
     expect(options.hostname).toBe("fcm.googleapis.com"); expect(options.agent.options.lookup).toBe(safePushLookup);
     expect(options.timeout).toBe(5000); expect(options.agent.options.rejectUnauthorized).not.toBe(false);
+    expect(options.headers.TTL).toBe(60);
     const response = Object.assign(new EventEmitter(), { statusCode: 302, headers: { location: "https://127.0.0.1/" } });
     const outgoing = Object.assign(new EventEmitter(), { write: vi.fn(), destroy: vi.fn(), end: () => {
       callback(response); queueMicrotask(() => response.emit("end"));

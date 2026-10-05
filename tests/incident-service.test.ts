@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   claimIncident: vi.fn(),
   createAudit: vi.fn(),
   findResponders: vi.fn(),
+  findStaff: vi.fn(),
   sendPush: vi.fn(),
   queryRaw: vi.fn(),
   executeRaw: vi.fn(),
@@ -71,6 +72,7 @@ describe("incident workflow services", () => {
     mocks.deleteImage.mockResolvedValue(undefined);
     mocks.createAudit.mockResolvedValue({});
     mocks.findResponders.mockResolvedValue([]);
+    mocks.findStaff.mockResolvedValue([]);
     mocks.findBarangayById.mockResolvedValue({ name: "Poblacion", status: "ACTIVE" });
     mocks.enqueueNotification.mockResolvedValue(undefined);
     mocks.enqueueCleanup.mockResolvedValue(undefined);
@@ -154,6 +156,7 @@ describe("incident workflow services", () => {
       $queryRaw: mocks.queryRaw,
       incident: { findFirst: vi.fn().mockResolvedValue(null), create: mocks.createIncident },
       responder: { findMany: mocks.findResponders },
+      user: { findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -272,6 +275,7 @@ describe("incident workflow services", () => {
         create: mocks.createIncident,
       },
       responder: { findMany: mocks.findResponders },
+      user: { findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -334,6 +338,7 @@ describe("incident workflow services", () => {
         create: mocks.createIncident,
       },
       responder: { findMany: mocks.findResponders },
+      user: { findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -384,6 +389,7 @@ describe("incident workflow services", () => {
       $executeRaw: mocks.executeRaw,
       incident: { findMany: mocks.findNearbyIncidents, create: mocks.createIncident },
       responder: { findMany: mocks.findResponders },
+      user: { findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
     const request = {
@@ -443,6 +449,7 @@ describe("incident workflow services", () => {
         create: mocks.createIncident,
       },
       responder: { findMany: mocks.findResponders },
+      user: { findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -471,7 +478,7 @@ describe("incident workflow services", () => {
     ]);
     expect(mocks.executeRaw).not.toHaveBeenCalled();
     expect(mocks.enqueueNotification).toHaveBeenCalledWith(expect.anything(), "INCIDENT_CREATED", expect.objectContaining({
-      data: { incidentId: "storm-incident" },
+      data: { incidentId: "storm-incident", attentionVersion: '1', serviceAttentionVersion: '1' },
     }), ["medic-user", "hazard-user"]);
   });
 

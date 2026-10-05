@@ -176,6 +176,7 @@ model User {
   mergedIncidents    Incident[]                @relation("IncidentMergedBy")
   flaggedIncidentReviews IncidentReviewFlag[] @relation("IncidentReviewFlaggedBy")
   reviewedIncidentFlags IncidentReviewFlag[] @relation("IncidentReviewReviewedBy")
+  incidentAcknowledgements IncidentAcknowledgement[]
 }
 
 model Token {
@@ -315,6 +316,7 @@ model Incident {
   reportedBy         String             @map("reported_by")
   reportedAt         DateTime           @default(now()) @map("reported_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
+  attentionVersion   Int                @default(1) @map("attention_version")
   mergedIntoId       String?            @map("merged_into_id") @db.Uuid
   mergedAt           DateTime?          @map("merged_at")
   mergedBy           String?            @map("merged_by")
@@ -334,6 +336,7 @@ model Incident {
   mergedReports  Incident[] @relation("IncidentMerges")
   merger         User?      @relation("IncidentMergedBy", fields: [mergedBy], references: [id], onDelete: SetNull)
   reviewFlags    IncidentReviewFlag[]
+  acknowledgements IncidentAcknowledgement[]
 
   @@index([reportedBy])
   @@index([typeId])
@@ -381,6 +384,7 @@ model IncidentServiceResponse {
   incidentId                String                @map("incident_id") @db.Uuid
   service                   ResponseService
   status                    ServiceResponseStatus @default(RESPONDING)
+  attentionVersion          Int                   @default(1) @map("attention_version")
   resolvedAt                DateTime?             @map("resolved_at")
   resolvedBy                String?               @map("resolved_by")
   createdAt                 DateTime              @default(now()) @map("created_at")
@@ -392,6 +396,21 @@ model IncidentServiceResponse {
   @@unique([incidentId, service])
   @@index([service, status])
   @@map("incident_service_responses")
+}
+
+// Personal acknowledgement is not dispatch or resolution. A reopened service
+// increments its version so an older acknowledgement cannot hide new work.
+model IncidentAcknowledgement {
+  userId     String @map("user_id")
+  incidentId String @map("incident_id") @db.Uuid
+  scope      String
+  version    Int
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  incident   Incident @relation(fields: [incidentId], references: [incidentId], onDelete: Cascade)
+
+  @@id([userId, incidentId, scope])
+  @@map("incident_acknowledgements")
 }
 
 // ============================================================
@@ -503,6 +522,7 @@ model NotificationOutbox {
   eventType            String    @map("event_type")
   payload              Json
   userIds              String[]  @default([]) @map("user_ids")
+  audienceIds          String[]  @default([]) @map("audience_ids")
   status               JobStatus @default(PENDING)
   attempts             Int       @default(0)
   nextAttemptAt        DateTime  @default(now()) @map("next_attempt_at")
@@ -510,6 +530,9 @@ model NotificationOutbox {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
   completedAt          DateTime? @map("completed_at")
+  claimToken           String?   @map("claim_token") @db.Uuid
+  leaseUntil           DateTime? @map("lease_until")
+  deliveredDevices     String[]  @default([]) @map("delivered_devices")
 
   @@index([status, nextAttemptAt])
   @@map("notification_outbox")

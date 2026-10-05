@@ -7,10 +7,12 @@ import { backgroundJobRetryDelayMs, isTransientJobInfrastructureError } from "@/
 import cloudinary from "@/lib/cloudinary";
 import { ENV } from '@/config/env';
 import { assertEvidenceScope } from '@/lib/evidence-scope';
+import { randomUUID } from 'node:crypto';
+import { notificationExpiry, notificationRelevant } from '@/lib/notification-relevance';
 
 export async function enqueueNotification(tx: Prisma.TransactionClient, eventType: string, payload: { title: string; body: string; data?: Record<string, string> }, userIds: string[]) {
   if (userIds.length === 0) return;
-  await tx.notificationOutbox.create({ data: { eventType, payload, userIds: [...new Set(userIds)] } });
+  await tx.notificationOutbox.create({ data: { eventType, payload, userIds: [...new Set(userIds)], audienceIds: [...new Set(userIds)] } });
 }
 
 export async function enqueueAssetCleanup(tx: Prisma.TransactionClient, publicId: string) {
@@ -59,21 +61,35 @@ export async function processPendingJobs() {
   try {
     const staleBefore = new Date(Date.now() - 5 * 60_000);
     await Promise.all([
-      prisma.notificationOutbox.updateMany({ where: { status: "PROCESSING", updatedAt: { lt: staleBefore } }, data: { status: "FAILED", nextAttemptAt: new Date(), lastError: "Recovered after interrupted worker" } }),
+      prisma.notificationOutbox.updateMany({ where: { status: "PROCESSING", OR: [{ leaseUntil: { lt: new Date() } }, { leaseUntil: null, updatedAt: { lt: staleBefore } }] }, data: { status: "FAILED", claimToken: null, leaseUntil: null, nextAttemptAt: new Date(), lastError: "Recovered after interrupted worker" } }),
       ...(ENV.EVIDENCE_DELETION_ENABLED ? [prisma.assetCleanupJob.updateMany({ where: { status: "PROCESSING", updatedAt: { lt: staleBefore } }, data: { status: "FAILED", nextAttemptAt: new Date(), lastError: "Recovered after interrupted worker" } })] : []),
     ]);
     const notifications = await prisma.notificationOutbox.findMany({ where: { status: { in: ["PENDING", "FAILED"] }, attempts: { lt: MAX_PUSH_JOB_ATTEMPTS }, nextAttemptAt: { lte: new Date() } }, take: 10, orderBy: { createdAt: "asc" } });
     for (const job of notifications) {
-      const claimed = await prisma.notificationOutbox.updateMany({ where: { notificationOutboxId: job.notificationOutboxId, status: job.status, attempts: { lt: MAX_PUSH_JOB_ATTEMPTS } }, data: { status: "PROCESSING" } });
+      const claimToken = randomUUID();
+      const where = { notificationOutboxId: job.notificationOutboxId, status: 'PROCESSING' as const, claimToken };
+      const claimed = await prisma.notificationOutbox.updateMany({ where: { notificationOutboxId: job.notificationOutboxId, status: job.status, updatedAt: job.updatedAt, attempts: { lt: MAX_PUSH_JOB_ATTEMPTS } }, data: { status: "PROCESSING", claimToken, leaseUntil: new Date(Date.now() + 60_000) } });
       if (!claimed.count) continue;
       try {
         const payload = job.payload as { title: string; body: string; data?: Record<string, string> };
-        await sendPushNotification({ ...payload, userIds: job.userIds });
-        await prisma.notificationOutbox.update({ where: { notificationOutboxId: job.notificationOutboxId }, data: { status: "COMPLETED", completedAt: new Date(), attempts: { increment: 1 }, lastError: null } });
+        if (notificationExpiry(job).getTime() > Date.now()) await sendPushNotification({ ...payload,
+          data: { ...payload.data, notificationId: job.notificationOutboxId, expiresAt: notificationExpiry(job).toISOString(), createdAt: job.createdAt.toISOString() },
+          userIds: job.userIds, deliveredDevices: job.deliveredDevices,
+          canDeliver: userId => notificationRelevant(job, userId),
+          beforeDevice: async () => {
+            const renewed = await prisma.notificationOutbox.updateMany({ where: { ...where, leaseUntil: { gt: new Date() } }, data: { leaseUntil: new Date(Date.now() + 60_000) } });
+            if (!renewed.count) throw new Error('Notification lease lost');
+          },
+          onDelivered: async key => {
+            const saved = await prisma.notificationOutbox.updateMany({ where: { ...where, leaseUntil: { gt: new Date() } }, data: { deliveredDevices: { push: key }, leaseUntil: new Date(Date.now() + 60_000) } });
+            if (!saved.count) throw new Error('Notification lease lost');
+          },
+        });
+        await prisma.notificationOutbox.updateMany({ where, data: { status: "COMPLETED", claimToken: null, leaseUntil: null, completedAt: new Date(), attempts: { increment: 1 }, lastError: null } });
       } catch (error) {
         const attempts = job.attempts + 1;
-        await prisma.notificationOutbox.update({ where: { notificationOutboxId: job.notificationOutboxId }, data: {
-          status: "FAILED", attempts, nextAttemptAt: retryAt(attempts),
+        await prisma.notificationOutbox.updateMany({ where, data: {
+          status: "FAILED", claimToken: null, leaseUntil: null, attempts, nextAttemptAt: retryAt(attempts),
           ...(error instanceof PushDeliveryError ? { userIds: error.retryUserIds } : {}),
           lastError: attempts >= MAX_PUSH_JOB_ATTEMPTS ? "Push retry limit reached; operator review required" : "Push delivery failed; retry scheduled",
         } });

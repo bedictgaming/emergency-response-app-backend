@@ -7,9 +7,16 @@ import { prisma } from "@/lib/prisma";
 import { ENV } from "@/config/env";
 import rateLimit from "express-rate-limit";
 import { MAX_PUSH_DEVICES_PER_USER, parsePushSubscription } from "@/lib/push-subscription";
+import { notificationRelevant, notificationAudience } from '@/lib/notification-relevance';
 
 const router = Router();
 const auth = new AuthMiddleware();
+router.get('/v1/:id/relevance', auth.execute, async (req, res) => {
+  if (!z.uuid().safeParse(req.params.id).success) return res.status(400).json({ message: 'Invalid notification' });
+  const job = await prisma.notificationOutbox.findUnique({ where: { notificationOutboxId: String(req.params.id) } });
+  if (!job || !notificationAudience(job).includes((req.user as JwtPayload).sub)) return res.status(404).json({ message: 'Notification unavailable' });
+  return res.json({ relevant: await notificationRelevant(job, (req.user as JwtPayload).sub) });
+});
 // The VAPID public key is intentionally public. Browsers need it before they
 // can create a subscription, and exposing it does not grant notification
 // access. Subscription registration remains authenticated below.

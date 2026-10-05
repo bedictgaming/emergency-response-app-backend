@@ -17,6 +17,10 @@ import { Permission } from "@/lib/permissions";
 import { requireIncidentAccess } from "@/middlewares/incident-access-middleware";
 import { requireTargetResponderDepartment, requireTargetUnitDepartment, requireUnitDepartment } from "@/middlewares/operational-access-middleware";
 import { deleteIncidentSchema, flagIncidentSchema, listReviewFlagsSchema, reviewIncidentFlagSchema } from "@/schema/incident/review-incident.schema";
+import { z } from 'zod';
+import { ResponseService } from '@/generated/prisma';
+import type { JwtPayload } from '@/lib/jwt';
+import { acknowledgeIncidentAttention, listIncidentAttention } from '@/services/incident/incident-attention-service';
 
 // Initialize
 const router = Router();
@@ -37,6 +41,24 @@ const nearbyCheckLimiter = rateLimit({
 // Public Routes (still authenticated — anyone logged in can view incidents)
 router.get("/v1/", authMiddleware.execute, validateSchema(listIncidentsSchema), incidentController.getAll);
 router.get("/v1/review-flags", authMiddleware.execute, requireMainAdmin, validateSchema(listReviewFlagsSchema), incidentController.listReviewFlags);
+const attentionQuery = z.object({ responseService: z.enum(ResponseService).optional() }).strict();
+router.get('/v1/attention', authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), async (req, res) => {
+  const query = attentionQuery.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ message: 'Invalid attention query' });
+  try {
+    const data = await listIncidentAttention(req.user as JwtPayload, query.data.responseService);
+    if (!data) return res.status(403).json({ message: 'Operational department required' });
+    return res.json({ data });
+  } catch { return res.status(503).json({ message: 'Alert queue unavailable. Retry; reports remain unchanged.' }); }
+});
+router.post('/v1/:id/attention/acknowledge', authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), async (req, res) => {
+  const body = z.object({ version: z.number().int().positive().max(2147483647), responseService: z.enum(ResponseService).optional() }).strict().safeParse(req.body);
+  if (!z.uuid().safeParse(req.params.id).success || !body.success) return res.status(400).json({ message: 'Invalid acknowledgement' });
+  try {
+    const code = await acknowledgeIncidentAttention(req.user as JwtPayload, String(req.params.id), body.data.version, body.data.responseService);
+    return res.status(code).json({ message: code === 200 ? 'Acknowledged for your account only; response status unchanged' : code === 409 ? 'Alert changed; refresh the queue' : 'Alert unavailable' });
+  } catch { return res.status(503).json({ message: 'Acknowledgement not confirmed. Retry safely.' }); }
+});
 router.get("/v1/:id", authMiddleware.execute, requireIncidentAccess, incidentController.getById);
 
 router.post("/v1/:id/review-flags", authMiddleware.execute, permittedRole([Role.ADMIN]), requirePermission(Permission.IncidentManageDepartment), validateSchema(flagIncidentSchema), requireIncidentAccess, incidentController.flag);

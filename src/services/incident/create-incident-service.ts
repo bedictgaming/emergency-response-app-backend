@@ -21,9 +21,9 @@ import {
 import {
   normalizeResponseServices,
   responseServiceFromText,
-  unitTypeSupportsService,
 } from "@/lib/response-services";
 import { enqueueAssetCleanup, enqueueNotification } from "@/lib/jobs";
+import { incidentNotificationAudience } from '@/lib/incident-notification-audience';
 import { protectIncidentEvidence } from "@/lib/evidence";
 import { resolveBarangayFromCoordinates } from "@/lib/barangay-boundaries";
 import { departmentService } from "@/lib/department-access";
@@ -391,17 +391,11 @@ export const CreateIncidentService = async (
         data: { actorId: reportedBy, action: approvedDuplicateOverride ? "INCIDENT_DUPLICATE_OVERRIDE" : "INCIDENT_CREATED", entityType: "Incident", entityId: created.incidentId, metadata: approvedDuplicateOverride ? { reason: data.duplicateOverrideReason } : undefined },
       });
       if (targetResponseServices.length > 0) {
-        const responderAccounts = await tx.responder.findMany({
-          where: { status: { not: "OFF_DUTY" }, user: { status: "ACTIVE" } },
-          select: { userId: true, unit: { select: { unitType: true } } },
-        });
-        const recipientIds = responderAccounts
-          .filter((responder) => unitTypeSupportsService(responder.unit.unitType, targetResponseServices))
-          .map((responder) => responder.userId);
+        const recipientIds = await incidentNotificationAudience(tx, targetResponseServices);
         await enqueueNotification(tx, "INCIDENT_CREATED", {
           title: "New emergency response request",
           body: "A new incident requires your response service.",
-          data: { incidentId: created.incidentId },
+          data: { incidentId: created.incidentId, attentionVersion: '1', serviceAttentionVersion: '1' },
         }, recipientIds);
       }
       return created;

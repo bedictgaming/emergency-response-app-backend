@@ -110,7 +110,7 @@ export async function deliverPush(subscription: webpush.PushSubscription, payloa
     // web-push does not follow redirects. Its socket timeout alone does not
     // bound DNS/TLS/slow responses; enforce a total deadline and abort sockets.
     return await Promise.race([
-      webpush.sendNotification(validated, payload, { agent, timeout: 5000 }),
+      webpush.sendNotification(validated, payload, { agent, timeout: 5000, TTL: 60 }),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => { agent.destroy(); reject(new Error("Push delivery timed out")); }, PUSH_DELIVERY_DEADLINE_MS);
       }),

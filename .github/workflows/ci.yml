@@ -30,3 +30,35 @@ jobs:
           docker run --rm -e NODE_ENV=test -e DATABASE_URL=postgresql://audit:audit@127.0.0.1:65432/audit_disposable
           emergency-response-ci node --input-type=module -e "await import('./dist/app.js'); await import('./dist/lib/jobs.js');"
       # Builds/tests only: no production secrets, provider calls or migrations.
+  native-alert-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_USER: alert_test
+          POSTGRES_PASSWORD: synthetic_ci_only
+          POSTGRES_DB: alert_disposable
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U alert_test -d alert_disposable"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DISPOSABLE_DATABASE_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:5432/alert_disposable?sslmode=disable
+      DATABASE_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:5432/alert_disposable?sslmode=disable
+      DIRECT_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:5432/alert_disposable?sslmode=disable
+      CONFIRM_DISPOSABLE_DATABASE: alert_disposable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: node scripts/run-native-alert-gate.mjs
+      # Empty ephemeral native database only. No cloud secrets or provider delivery.

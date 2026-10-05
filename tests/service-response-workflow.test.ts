@@ -8,10 +8,13 @@ const mocks = vi.hoisted(() => ({
   updateIncident: vi.fn(),
   createAudit: vi.fn(),
   publish: vi.fn(),
+  enqueue: vi.fn(), audience: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction } }));
 vi.mock("@/lib/events", () => ({ publishEmergencyEvent: mocks.publish }));
+vi.mock('@/lib/jobs', () => ({ enqueueNotification: mocks.enqueue }));
+vi.mock('@/lib/incident-notification-audience', () => ({ incidentNotificationAudience: mocks.audience }));
 
 import { UpdateServiceResponseService } from "@/services/incident/update-service-response-service";
 
@@ -21,6 +24,7 @@ describe("multi-service completion", () => {
     mocks.updateService.mockResolvedValue({ service: "MEDICAL", status: "RESOLVED" });
     mocks.updateIncident.mockResolvedValue({});
     mocks.createAudit.mockResolvedValue({});
+    mocks.audience.mockResolvedValue(['department-admin']);
     mocks.transaction.mockImplementation(async callback => callback({
       $queryRaw: mocks.queryRaw,
       incident: { findUnique: mocks.findIncident, update: mocks.updateIncident },
@@ -93,5 +97,19 @@ describe("multi-service completion", () => {
     );
     expect(result.code).toBe(409);
     expect(mocks.updateService).not.toHaveBeenCalled();
+  });
+  it('makes identical retries idempotent without advancing attention or creating audit/push work', async () => {
+    mocks.findIncident.mockResolvedValue({ status: 'RESPONDING', attentionVersion: 1, serviceResponses: [{ service: 'MEDICAL', status: 'RESPONDING', attentionVersion: 1 }] });
+    expect((await UpdateServiceResponseService('incident', 'MEDICAL', 'RESPONDING', { sub: 'admin', role: 'ADMIN', type: 'access', department: 'MEDICAL' })).code).toBe(200);
+    expect(mocks.updateService).not.toHaveBeenCalled(); expect(mocks.createAudit).not.toHaveBeenCalled(); expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
+  it('atomically advances service/global versions and enqueues only the reopened service', async () => {
+    mocks.findIncident.mockResolvedValue({ status: 'RESPONDING', attentionVersion: 3, serviceResponses: [{ service: 'MEDICAL', status: 'RESOLVED', attentionVersion: 2 }, { service: 'FIRE', status: 'RESPONDING', attentionVersion: 1 }] });
+    mocks.updateService.mockResolvedValue({ service: 'MEDICAL', status: 'RESPONDING', attentionVersion: 3 });
+    expect((await UpdateServiceResponseService('incident', 'MEDICAL', 'RESPONDING', { sub: 'admin', role: 'ADMIN', type: 'access', department: 'MEDICAL' })).code).toBe(200);
+    expect(mocks.updateService).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ attentionVersion: { increment: 1 } }) }));
+    expect(mocks.updateIncident).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'RESPONDING', attentionVersion: { increment: 1 } } }));
+    expect(mocks.audience).toHaveBeenCalledWith(expect.anything(), ['MEDICAL']);
+    expect(mocks.enqueue.mock.calls[0][2].data).toMatchObject({ responseService: 'MEDICAL', attentionVersion: '4', serviceAttentionVersion: '3' });
   });
 });

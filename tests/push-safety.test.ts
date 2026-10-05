@@ -92,4 +92,25 @@ describe("push recipient safety", () => {
     await sendPushNotification({ title: "Alert", body: "Public" });
     expect(mocks.sendNotification).toHaveBeenCalledOnce(); expect(mocks.deleteMany).toHaveBeenCalled();
   });
+  it('does not resend a successful device when another device on the same account fails', async () => {
+    mocks.findMany.mockResolvedValue([{ token: subscription, userId: 'recipient' }, { token: subscription.replace('/subscription', '/subscription-2'), userId: 'recipient' }]);
+    mocks.findFirst.mockResolvedValue({ deviceTokenId: 'owned' });
+    const deliveredDevices: string[] = [];
+    mocks.sendNotification.mockResolvedValueOnce({ statusCode: 201 }).mockRejectedValueOnce({ statusCode: 503 });
+    await expect(sendPushNotification({ title: 'Update', body: 'Private', userIds: ['recipient'], deliveredDevices, onDelivered: async key => { deliveredDevices.push(key); } })).rejects.toBeInstanceOf(PushDeliveryError);
+    expect(deliveredDevices).toHaveLength(1);
+    mocks.sendNotification.mockResolvedValue({ statusCode: 201 });
+    await sendPushNotification({ title: 'Update', body: 'Private', userIds: ['recipient'], deliveredDevices });
+    expect(mocks.sendNotification).toHaveBeenCalledTimes(3);
+  });
+  it('canonicalizes duplicate subscription JSON for the same device rather than sending twice', async () => {
+    mocks.findMany.mockResolvedValue([{ token: subscription, userId: 'recipient' }, { token: subscription + ' ', userId: 'recipient' }]);
+    mocks.findFirst.mockResolvedValue({ deviceTokenId: 'owned' }); mocks.sendNotification.mockResolvedValue({ statusCode: 201 });
+    await sendPushNotification({ title: 'Update', body: 'Private', userIds: ['recipient'] }); expect(mocks.sendNotification).toHaveBeenCalledOnce();
+  });
+  it('suppresses a no-longer-relevant update before transport', async () => {
+    mocks.findMany.mockResolvedValue([{ token: subscription, userId: 'recipient' }]); mocks.findFirst.mockResolvedValue({ deviceTokenId: 'owned' });
+    await sendPushNotification({ title: 'Update', body: 'Private', userIds: ['recipient'], canDeliver: async () => false });
+    expect(mocks.sendNotification).not.toHaveBeenCalled();
+  });
 });
