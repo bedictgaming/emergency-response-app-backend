@@ -21,6 +21,7 @@ it('resends the claimed valid link, and hides SMTP failure details', async () =>
   expect((await ResendEmailVerificationService(' Citizen@Example.test ')).code).toBe(202);
   expect(mocks.find).toHaveBeenCalledWith('citizen@example.test');
   expect(mocks.send.mock.calls[0][0].html).toContain('token=still-valid');
+  expect(mocks.send.mock.calls[0][0].accountAction).toMatchObject({ purpose: 'VERIFY_EMAIL', url: mocks.send.mock.calls[0][0].html, expiresAt: new Date('2026-10-05').toISOString() });
 });
 it('reports retained account truthfully when initial mail or token creation fails', async () => {
   vi.stubEnv('NODE_ENV', 'production');
@@ -29,6 +30,8 @@ it('reports retained account truthfully when initial mail or token creation fail
   mocks.token.mockResolvedValue({}); mocks.send.mockRejectedValue(new Error('mail unavailable'));
   expect(await SignupUserService('Citizen', 'CITIZEN@example.test', 'StrongPassword123')).toMatchObject({ code: 200, message: expect.stringContaining('delivery failed') });
   expect(mocks.create.mock.calls[0][0]).toMatchObject({ email: 'citizen@example.test', password: 'derived-hash' });
+  expect(mocks.send.mock.calls[0][0].accountAction).toMatchObject({ purpose: 'VERIFY_EMAIL', url: mocks.send.mock.calls[0][0].html });
+  expect(mocks.send.mock.calls[0][0].accountAction.expiresAt).toBe(mocks.token.mock.calls[0][0].expiresAt.toISOString());
   mocks.token.mockRejectedValue(new Error('token persistence unavailable'));
   expect(await SignupUserService('Citizen', 'citizen@example.test', 'StrongPassword123')).toMatchObject({ code: 200, message: expect.stringContaining('delivery is unavailable') });
   vi.unstubAllEnvs();

@@ -36,6 +36,8 @@ describe("password reset delivery", () => {
     expect(href).toMatch(/^https:\/\/response\.example\.test\/login\?resetToken=[a-f0-9]{64}$/);
 
     const token = new URL(href!).searchParams.get("resetToken")!;
+    expect(mocks.sendEmail.mock.calls[0][0].accountAction).toMatchObject({ purpose: 'RESET_PASSWORD', url: href });
+    expect(mocks.sendEmail.mock.calls[0][0].accountAction.expiresAt).toBe(mocks.createToken.mock.calls[0][0].data.expiresAt.toISOString());
     expect(mocks.createToken).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: "user-id",
@@ -43,5 +45,22 @@ describe("password reset delivery", () => {
         token: crypto.createHash("sha256").update(token).digest("hex"),
       }),
     });
+  });
+  it('normalizes the email before finding an existing account', async () => {
+    await RequestPasswordResetService('  Citizen@Example.test  ');
+    expect(mocks.findUser).toHaveBeenCalledWith({ where: { email: 'citizen@example.test' } });
+  });
+  it('keeps absent, inactive, accepted and failed delivery responses indistinguishable', async () => {
+    const accepted = await RequestPasswordResetService('citizen@example.test');
+    expect(accepted.message).toContain('requested');
+    mocks.findUser.mockResolvedValueOnce(null);
+    expect(await RequestPasswordResetService('missing@example.test')).toEqual(accepted);
+    mocks.findUser.mockResolvedValueOnce({ email: 'inactive@example.test', status: 'INACTIVE' });
+    expect(await RequestPasswordResetService('inactive@example.test')).toEqual(accepted);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.sendEmail.mockRejectedValueOnce(new Error('private-recipient-key-token'));
+    expect(await RequestPasswordResetService('citizen@example.test')).toEqual(accepted);
+    expect(JSON.stringify(logged.mock.calls)).not.toContain('private-recipient-key-token');
+    logged.mockRestore();
   });
 });

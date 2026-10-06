@@ -4,6 +4,7 @@ import { TokenRepository } from "@/repositories/token.repository";
 import { hashPassword, PasswordProcessingBusy } from "@/utils/password";
 import { renderTemplate } from "@/utils/template";
 import { sendEmail } from "@/services/mail/mailer";
+import { mailFailureCategory } from '@/services/mail/mail-errors';
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -59,8 +60,9 @@ export async function SignupUserService(name: string, email: string, password: s
       to: created.email ?? email,
       subject: "Verify your email address",
       html,
-    }); } catch {
-      console.warn("Verification email delivery pending; account retained for resend");
+      accountAction: { purpose: 'VERIFY_EMAIL', url: emailVerificationURL, name: created.name ?? 'there', expiresAt: expiresAt.toISOString() },
+    }); } catch (error) {
+      console.warn("Verification email delivery pending; account retained for resend", { category: mailFailureCategory(error) });
       return { code: 200, status: "success", message: "Account created, but verification email delivery failed. Use Resend verification after one minute.", data: { user: created } };
     }
 

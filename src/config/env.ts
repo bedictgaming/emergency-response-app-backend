@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import { isIP } from 'node:net';
+import { readMailConfiguration } from '@/services/mail/mail-config';
 dotenv.config();
 
 for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED']) {
@@ -88,13 +89,6 @@ const productionSchema = z.object({
     API_KEY: z.string().min(1),
     API_SECRET: z.string().min(1),
   }),
-  SMTP: z.object({
-    HOST: z.string().min(1),
-    PORT: z.number().int().positive(),
-    USER: z.string().min(1),
-    PASS: z.string().min(1),
-    FROM: z.string().email(),
-  }),
   WEB_PUSH_PUBLIC_KEY: z.string().min(20),
   WEB_PUSH_PRIVATE_KEY: z.string().min(20),
   WEB_PUSH_SUBJECT: z.string().min(5),
@@ -106,6 +100,8 @@ if (raw.NODE_ENV === 'production') {
     const fields = parsed.error.issues.map((issue) => issue.path.join('.')).join(', ');
     throw new Error(`Invalid production configuration: ${fields}`);
   }
+  // HTTPS modes do not require SMTP credentials; validate only the selected transport.
+  readMailConfiguration(process.env);
 }
 
 export const ENV = Object.freeze(raw);
