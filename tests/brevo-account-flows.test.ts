@@ -15,6 +15,7 @@ beforeEach(() => {
   vi.stubEnv('NODE_ENV', 'production'); vi.stubEnv('MAIL_PROVIDER', 'brevo');
   vi.stubEnv('MAIL_FROM', 'sender@example.test'); vi.stubEnv('BREVO_API_KEY', 'xkeysib-synthetic-test-key-only');
   vi.stubEnv('BACKEND_URL', 'https://account.example.test'); vi.stubEnv('APP_NAME', 'Account test');
+  vi.stubEnv('FRONTEND_URL', 'https://account.example.test/');
   vi.spyOn(console, 'info').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -31,7 +32,7 @@ it('sends production signup verification through the actual Brevo mailer without
   const body = JSON.parse(fetcher.mock.calls[0][1].body);
   expect(body.subject).toBe('Verify your email address');
   expect(body.to).toEqual([{ email: citizen.email }]);
-  expect(body.htmlContent).toContain(`https://account.example.test/api/auth/v1/verify-email?token=${mocks.token.mock.calls[0][0].token}`);
+  expect(body.htmlContent).toContain(`https://account.example.test/login?verificationToken=${mocks.token.mock.calls[0][0].token}`);
   expect(body.htmlContent).toContain('&lt;script&gt;synthetic&lt;/script&gt;');
   expect(body.htmlContent).not.toContain(citizen.name); expect(fetcher).toHaveBeenCalledOnce();
   expect(mocks.smtp).not.toHaveBeenCalled();
@@ -58,8 +59,8 @@ it.each(['gateway', 'environment'])('labels every controlled staging account flo
     '[STAGING TEST] Reset your Emergency Response password',
   ]);
   expect(messages.every(message => message.to.length === 1 && message.to[0].email === citizen.email)).toBe(true);
-  expect(messages[0].htmlContent).toContain(`token=${mocks.token.mock.calls[0][0].token}`);
-  expect(messages[1].htmlContent).toContain(`token=${claim.token.token}`);
+  expect(messages[0].htmlContent).toContain(`verificationToken=${mocks.token.mock.calls[0][0].token}`);
+  expect(messages[1].htmlContent).toContain(`verificationToken=${claim.token.token}`);
   expect(messages[2].htmlContent).toContain('https://account.example.test/login?resetToken=');
   expect(mocks.smtp).not.toHaveBeenCalled();
 });
@@ -72,7 +73,7 @@ it('resends only the existing claimed link and preserves generic acceptance on p
   vi.stubGlobal('fetch', fetcher);
   const { ResendEmailVerificationService } = await import('@/services/auth/resend-email-verification-service');
   const accepted = await ResendEmailVerificationService(citizen.email);
-  expect(JSON.parse(fetcher.mock.calls[0][1].body).htmlContent).toContain(`token=${claim.token.token}`);
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).htmlContent).toContain(`verificationToken=${claim.token.token}`);
   expect(await ResendEmailVerificationService(citizen.email)).toEqual(accepted);
   mocks.claim.mockResolvedValue(null);
   expect(await ResendEmailVerificationService(citizen.email)).toEqual(accepted);

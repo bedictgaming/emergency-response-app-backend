@@ -3,6 +3,7 @@ import { TokenRepository } from "@/repositories/token.repository";
 import { renderTemplate } from "@/utils/template";
 import { sendEmail } from "@/services/mail/mailer";
 import { mailFailureCategory } from '@/services/mail/mail-errors';
+import { verificationEmailUrl } from './verification-email-url';
 
 export async function ResendEmailVerificationService(email: string) {
   const accepted = { code: 202, status: "success", message: "If an eligible account exists, verification delivery has been requested. Wait one minute before retrying; check your inbox and spam folder." };
@@ -11,7 +12,7 @@ export async function ResendEmailVerificationService(email: string) {
     if (!user) return accepted;
     const claim = await new TokenRepository().claimVerificationResend(user.id);
     if (!claim) return accepted;
-    const emailVerificationURL = `${process.env.BACKEND_URL}/api/auth/v1/verify-email?token=${encodeURIComponent(claim.token.token)}`;
+    const emailVerificationURL = verificationEmailUrl(claim.token.token);
     await sendEmail({
       to: claim.user.email ?? email,
       subject: "Verify your email address",

@@ -56,6 +56,11 @@ export class AuthController {
   public verifyEmail = async (req: Request, res: Response) => {
     const token = req.query.token as string;
     const result = await VerifyEmailService(token);
+
+    // Explicit same-origin UI action; ordinary emailed GET navigation still redirects.
+    if (req.get('Accept') === 'application/json') {
+      return res.status(result.code).json(result);
+    }
     
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
     if (result.code === 200) {

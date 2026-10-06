@@ -5,6 +5,7 @@ import { hashPassword, PasswordProcessingBusy } from "@/utils/password";
 import { renderTemplate } from "@/utils/template";
 import { sendEmail } from "@/services/mail/mailer";
 import { mailFailureCategory } from '@/services/mail/mail-errors';
+import { verificationEmailUrl } from './verification-email-url';
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -48,7 +49,7 @@ export async function SignupUserService(name: string, email: string, password: s
       return { code: 200, status: "success", message: "Account created, but verification delivery is unavailable. Use Resend verification after one minute.", data: { user: created } };
     }
 
-    const emailVerificationURL = `${process.env.BACKEND_URL}/api/auth/v1/verify-email?token=${encodeURIComponent(token)}`;
+    const emailVerificationURL = verificationEmailUrl(token);
 
     const html = renderTemplate("verify-email.html", {
       name: created.name ?? "there",
