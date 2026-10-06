@@ -6,12 +6,6 @@ import { verifyUploadedAsset } from "@/lib/cloudinary";
 import { publishEmergencyEvent } from "@/lib/events";
 import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
 import {
-  DAILY_CITIZEN_REPORT_LIMIT,
-  DAILY_REPORT_LIMIT_MESSAGE,
-  DailyReportLimitExceeded,
-  getManilaDayRange,
-} from "@/lib/daily-report-limit";
-import {
   DUPLICATE_INCIDENT_RADIUS_METERS,
   NearbyIncident,
   findMatchingNearbyIncident,
@@ -96,18 +90,6 @@ export const CreateIncidentService = async (
       }
     }
 
-    const reportDay = getManilaDayRange();
-    if (requiresProof) {
-      const reportsToday = await prisma.incident.count({
-        where: {
-          reportedBy,
-          reportedAt: { gte: reportDay.start, lt: reportDay.end },
-        },
-      });
-      if (reportsToday >= DAILY_CITIZEN_REPORT_LIMIT) {
-        return { code: 429, status: "error", message: DAILY_REPORT_LIMIT_MESSAGE };
-      }
-    }
     // 1. Resolve Incident Type
     let resolvedTypeId = data.typeId;
     let resolvedTypeName: string | undefined;
@@ -285,19 +267,8 @@ export const CreateIncidentService = async (
     // 5. Create the incident and its verified proof atomically.
     const incident = await prisma.$transaction(async (tx) => {
       let approvedDuplicateOverride = false;
-      // Serialize submissions for this reporter, then repeat checks under lock.
+      // Preserve reporter serialization for evidence checks; there is no daily quota.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${reportedBy} FOR UPDATE`;
-      if (requiresProof) {
-        const reportsToday = await tx.incident.count({
-          where: {
-            reportedBy,
-            reportedAt: { gte: reportDay.start, lt: reportDay.end },
-          },
-        });
-        if (reportsToday >= DAILY_CITIZEN_REPORT_LIMIT) {
-          throw new DailyReportLimitExceeded(DAILY_REPORT_LIMIT_MESSAGE);
-        }
-      }
       if (verifiedProof?.phash) {
         const reporterProofKey = `${reportedBy}:${verifiedProof.phash}`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${reporterProofKey}, 0))`;
@@ -411,9 +382,6 @@ export const CreateIncidentService = async (
       data: { incident: protectIncidentEvidence(incident) },
     };
   } catch (error) {
-    if (error instanceof DailyReportLimitExceeded) {
-      return { code: 429, status: "error", message: error.message };
-    }
     if (error instanceof DuplicateActiveIncidentError) {
       const distanceMeters = Math.round(error.existingIncident.distanceMeters);
       await prisma.auditLog.create({
@@ -439,8 +407,8 @@ export const CreateIncidentService = async (
     console.error("CreateIncidentService Error", error);
     return { code: 500, status: "error", message: "Failed to create incident" };
   } finally {
-    // Direct uploads happen before incident creation. If validation, the daily
-    // quota, or a transaction rejects the report, remove that unreferenced
+    // Direct uploads happen before incident creation. If validation or a
+    // transaction rejects the report, enqueue cleanup of that unreferenced
     // asset so retries do not leak orphaned Cloudinary files.
     if (verifiedProof && !proofPersisted) {
       try {

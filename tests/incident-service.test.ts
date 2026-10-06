@@ -179,30 +179,6 @@ describe("incident workflow services", () => {
     }));
   });
 
-  it("blocks a citizen's third report until the next Manila day", async () => {
-    mocks.findUser.mockResolvedValue({ role: "USER" });
-    mocks.countIncidents.mockResolvedValue(2);
-    mocks.verifyAsset.mockResolvedValue({
-      url: "https://example.test/third.png",
-      publicId: "emergency-incidents/citizen-id/third",
-      format: "png",
-      bytes: 100,
-      width: 10,
-      height: 10,
-    });
-
-    const result = await CreateIncidentService({
-      title: "Third emergency",
-      proofAttachment: { publicId: "evidence/citizen-id/third", fileName: "third.png" },
-    }, "citizen-id");
-
-    expect(result.code).toBe(429);
-    expect(result.message).toContain("daily limit of 2");
-    expect(mocks.verifyAsset).toHaveBeenCalledOnce();
-    expect(mocks.enqueueCleanup).toHaveBeenCalledWith(expect.anything(), "emergency-incidents/citizen-id/third");
-    expect(mocks.createIncident).not.toHaveBeenCalled();
-  });
-
   it("scopes duplicate-photo protection to the citizen who submitted it", async () => {
     mocks.findUser.mockResolvedValue({ role: "USER" });
     mocks.verifyAsset.mockResolvedValue({
@@ -252,9 +228,9 @@ describe("incident workflow services", () => {
     expect(mocks.enqueueCleanup).not.toHaveBeenCalled();
   });
 
-  it("allows a citizen's second report when it is outside the nearby duplicate radius", async () => {
+  it.each([2, 10, 100])("allows another distinct citizen report after %i earlier reports without a daily count check", async (priorReports) => {
     mocks.findUser.mockResolvedValue({ role: "USER" });
-    mocks.countIncidents.mockResolvedValue(1);
+    mocks.countIncidents.mockResolvedValue(priorReports);
     mocks.verifyAsset.mockResolvedValue({
       url: "https://example.test/second.png",
       publicId: "emergency-incidents/citizen-id/second",
@@ -266,11 +242,12 @@ describe("incident workflow services", () => {
     mocks.findIncidentType.mockResolvedValue({ typeId: "type-id", typeName: "Fire" });
     mocks.findLocation.mockResolvedValue({ locationId: "location-id" });
     mocks.createIncident.mockImplementation(async ({ data }) => ({ incidentId: "second-incident", ...data }));
+    const transactionCount = vi.fn().mockResolvedValue(priorReports);
     mocks.transaction.mockImplementation(async (callback) => callback({
       $queryRaw: mocks.queryRaw,
       $executeRaw: mocks.executeRaw,
       incident: {
-        count: vi.fn().mockResolvedValue(1),
+        count: transactionCount,
         findMany: mocks.findNearbyIncidents,
         create: mocks.createIncident,
       },
@@ -291,6 +268,11 @@ describe("incident workflow services", () => {
     }, "citizen-id");
 
     expect(result.code).toBe(201);
+    expect(mocks.countIncidents).not.toHaveBeenCalled();
+    expect(transactionCount).not.toHaveBeenCalled();
+    expect(mocks.verifyAsset).toHaveBeenCalledOnce();
+    expect(mocks.publish).toHaveBeenCalledOnce();
+    expect(mocks.enqueueCleanup).not.toHaveBeenCalled();
     expect(mocks.createIncident).toHaveBeenCalledOnce();
     expect(mocks.createIncident).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ description: "[Contact: 09171234567]" }),
@@ -305,8 +287,9 @@ describe("incident workflow services", () => {
     expect(mocks.executeRaw).not.toHaveBeenCalled();
   });
 
-  it("rejects a nearby active incident without consuming another report", async () => {
+  it.each(['OPEN', 'ACTIVE', 'RESPONDING'])("still rejects a nearby %s duplicate after the daily quota is removed", async (status) => {
     mocks.findUser.mockResolvedValue({ role: "USER" });
+    mocks.countIncidents.mockResolvedValue(100);
     mocks.verifyAsset.mockResolvedValue({
       url: "https://example.test/nearby.png",
       publicId: "emergency-incidents/citizen-id/nearby",
@@ -321,14 +304,14 @@ describe("incident workflow services", () => {
       incidentId: "existing-incident",
       typeId: "type-id",
       title: "Existing fire",
-      status: "ACTIVE",
+      status,
       reportedAt: new Date("2026-09-13T01:00:00Z"),
       latitude: 10.25105,
       longitude: 123.94905,
       requestedServices: [],
       type: { typeName: "Fire" },
     }]);
-    const transactionCount = vi.fn().mockResolvedValue(1);
+    const transactionCount = vi.fn().mockResolvedValue(100);
     mocks.transaction.mockImplementation(async (callback) => callback({
       $queryRaw: mocks.queryRaw,
       $executeRaw: mocks.executeRaw,
@@ -358,8 +341,11 @@ describe("incident workflow services", () => {
       message: expect.stringContaining("already been reported nearby"),
     });
     expect(result).not.toHaveProperty("data");
-    expect(transactionCount).toHaveBeenCalledOnce();
+    expect(mocks.countIncidents).not.toHaveBeenCalled();
+    expect(transactionCount).not.toHaveBeenCalled();
     expect(mocks.createIncident).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.enqueueNotification).not.toHaveBeenCalled();
     expect(mocks.createAudit).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorId: "citizen-id",
