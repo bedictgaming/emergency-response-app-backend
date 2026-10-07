@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { AuthController } from "@/controllers/auth.controller";
 import { validateSchema } from "@/middlewares/validate.schema";
-import { signupSchema, loginSchema, verifyEmailSchema, resendVerificationSchema, refreshTokenSchema, requestPasswordResetSchema, resetPasswordSchema } from "@/schema/auth";
+import { signupSchema, loginSchema, verifyEmailSchema, refreshTokenSchema, requestPasswordResetSchema, resetPasswordSchema } from "@/schema/auth";
 import { AuthMiddleware } from "@/middlewares/auth-middleware";
 import passport from "@/lib/passport";
 import rateLimit from "express-rate-limit";
@@ -63,12 +63,11 @@ const googleOAuthLimiter = rateLimit({
 // Authentication Routes
 router.post("/v1/signup", signupLimiter, accountMessageLimiter, validateSchema(signupSchema), authController.signup);
 router.post("/v1/login", authAttemptLimiter, validateSchema(loginSchema), authController.login);
-router.get("/v1/verify-email", validateSchema(verifyEmailSchema), authController.verifyEmail);
-router.post("/v1/resend-email-verification", accountMessageLimiter, validateSchema(resendVerificationSchema), authController.resendEmailVerification);
-router.post("/v1/refresh-token", tokenRefreshLimiter, validateSchema(refreshTokenSchema), authController.refresh);
-router.post("/v1/logout", authController.logout);
 router.post("/v1/password-reset/request", accountMessageLimiter, validateSchema(requestPasswordResetSchema), authController.requestPasswordReset);
 router.post("/v1/password-reset/confirm", authAttemptLimiter, validateSchema(resetPasswordSchema), authController.resetPassword);
+router.get("/v1/verify-email", validateSchema(verifyEmailSchema), authController.verifyEmail);
+router.post("/v1/refresh-token", tokenRefreshLimiter, validateSchema(refreshTokenSchema), authController.refresh);
+router.post("/v1/logout", authController.logout);
 
 // Google OAuth uses a one-time, HttpOnly state cookie to prevent login CSRF.
 const oauthCookie = {

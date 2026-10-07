@@ -27,7 +27,7 @@ export async function RefreshTokenService(refreshToken?: string) {
     return { code: 404, status: "error", message: "User not found" };
   }
 
-  if (!user.emailVerified) {
+  if (user.role !== "USER" && !user.emailVerified) {
     return { code: 403, status: "error", message: "Email not verified" };
   }
   if (user.status !== "ACTIVE") {

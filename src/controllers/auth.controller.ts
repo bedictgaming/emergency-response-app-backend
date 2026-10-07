@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { Profile } from "passport-google-oauth20";
-import { SignupUserService, LoginCredentialsService, VerifyEmailService, RefreshTokenService, ResendEmailVerificationService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
+import { SignupUserService, LoginCredentialsService, VerifyEmailService, RefreshTokenService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
 import { TokenExpiry, toMilliseconds, verifyAccessToken, type JwtPayload } from "@/lib/jwt";
 import { ENV } from "@/config/env";
 import { prisma } from "@/lib/prisma";
@@ -52,7 +52,17 @@ export class AuthController {
     return res.status(result.code).json(result);
   };
 
-  // Email Verification
+  public requestPasswordReset = async (req: Request, res: Response) => {
+    const result = await RequestPasswordResetService(req.body.email);
+    return res.status(result.code).json(result);
+  };
+
+  public resetPassword = async (req: Request, res: Response) => {
+    const result = await ResetPasswordService(req.body.token, req.body.password);
+    return res.status(result.code).json(result);
+  };
+
+  // Legacy verification is optional for citizens and creates no session.
   public verifyEmail = async (req: Request, res: Response) => {
     const token = req.query.token as string;
     const result = await VerifyEmailService(token);
@@ -126,13 +136,6 @@ export class AuthController {
     return res.redirect(`${frontendUrl}/login?oauth=${reason}`);
   };
 
-  // Resend Email Verification
-  public resendEmailVerification = async (req: Request, res: Response) => {
-    const { email } = req.body ?? {};
-    const result = await ResendEmailVerificationService(email);
-    return res.status(result.code).json(result);
-  };
-
   // Get Current User Session
   public me = async (req: Request, res: Response) => {
     const account = req.user as JwtPayload | undefined;
@@ -146,13 +149,4 @@ export class AuthController {
     return res.status(result.code).json(result);
   };
 
-  public requestPasswordReset = async (req: Request, res: Response) => {
-    const result = await RequestPasswordResetService(req.body.email);
-    return res.status(result.code).json(result);
-  };
-
-  public resetPassword = async (req: Request, res: Response) => {
-    const result = await ResetPasswordService(req.body.token, req.body.password);
-    return res.status(result.code).json(result);
-  };
 }

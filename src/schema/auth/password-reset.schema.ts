@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const requestPasswordResetSchema = z.object({
-  body: z.object({ email: z.string().email().transform((value) => value.toLowerCase()) }),
+  body: z.object({ email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()) }),
 });
 
 export const resetPasswordSchema = z.object({

@@ -16,7 +16,7 @@ export async function LoginCredentialsService(email: string, password: string) {
       return { code: 401, status: "error", message: "Invalid email or password" };
     }
 
-    if (!user.emailVerified) {
+    if (user.role !== "USER" && !user.emailVerified) {
       return { code: 403, status: "error", message: "Please verify your email first" };
     }
     if (user.status !== "ACTIVE") {
