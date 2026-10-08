@@ -163,6 +163,7 @@ model User {
   // Auth relations
   tokens        Token[]
   oauthAccounts OAuthAccount[]
+  googleLinkIntents GoogleLinkIntent[]
 
   // Emergency-response relations
   responder         Responder?
@@ -203,6 +204,23 @@ model OAuthAccount {
 
   @@unique([provider, providerAccountId])
   @@index([userId])
+}
+
+// Short-lived, explicit password-confirmed linking only. Never a login token.
+model GoogleLinkIntent {
+  id                  String    @id @default(uuid())
+  stateHash           String    @unique
+  userId              String    @unique
+  sessionId           String
+  passwordFingerprint String
+  email               String
+  pkceChallenge       String
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 // ============================================================

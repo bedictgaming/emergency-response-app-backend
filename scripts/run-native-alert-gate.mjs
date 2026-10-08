@@ -41,6 +41,7 @@ try {
   const migrations = (await readdir(resolve('prisma/migrations'), { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name).sort();
   for (const migration of migrations) {
     if (migration === '20261005093000_alert_attention') await snapshot('before-alert-migration');
+    if (migration === '20261009090000_google_account_linking') await snapshot('before-google-link-migration');
     await client.query(await readFile(resolve('prisma/migrations', migration, 'migration.sql'), 'utf8'));
   }
   key.fill(0);
@@ -50,6 +51,7 @@ try {
   Object.assign(env, {
     NODE_ENV: 'test', DATABASE_URL: supplied, DIRECT_URL: supplied, DISPOSABLE_DATABASE_URL: supplied,
     CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1',
+    RUN_NATIVE_GOOGLE_LINK_TESTS: '1', GOOGLE_ACCOUNT_LINKING_ENABLED: 'true',
     RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false',
     EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false',
     API_GATEWAY_SECRET: '', API_GATEWAY_AUDIENCE: '', TRUSTED_PROXY_CIDRS: '', RAILWAY_ENVIRONMENT_NAME: '',
@@ -59,13 +61,17 @@ try {
     GOOGLE_CLIENT_ID: 'synthetic-client', GOOGLE_CLIENT_SECRET: 'synthetic-secret', GEMINI_API_KEY: '',
     SMTP_HOST: '', SMTP_USER: '', SMTP_PASSWORD: '', SMTP_FROM: '', DOTENV_CONFIG_QUIET: 'true',
   });
-  const status = await new Promise((accept, reject) => {
-    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/alert-database.integration.test.ts', '--maxWorkers=1'], { env, stdio: 'inherit', windowsHide: true });
-    child.on('error', () => reject(new Error('TEST_RUNNER_UNAVAILABLE'))); child.on('close', accept);
-  });
-  if (status !== 0) throw new Error('NATIVE_ALERT_TESTS_FAILED');
+  for (const test of ['tests/alert-database.integration.test.ts', 'tests/google-link-database.integration.test.ts']) {
+    const status = await new Promise((accept, reject) => {
+      const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', test, '--maxWorkers=1'], { env, stdio: 'inherit', windowsHide: true });
+      child.on('error', () => reject(new Error('TEST_RUNNER_UNAVAILABLE'))); child.on('close', accept);
+    });
+    if (status !== 0) throw new Error(test.includes('google-link') ? 'NATIVE_GOOGLE_LINK_TESTS_FAILED' : 'NATIVE_ALERT_TESTS_FAILED');
+  }
   const leftovers = await client.query('SELECT (SELECT count(*) FROM "User") AS users, (SELECT count(*) FROM incidents) AS incidents, (SELECT count(*) FROM notification_outbox) AS jobs');
   if (Object.values(leftovers.rows[0]).some(value => Number(value) !== 0)) throw new Error('SYNTHETIC_FIXTURE_CLEANUP_FAILED');
+  const authLeftovers = await client.query('SELECT (SELECT count(*) FROM "OAuthAccount") AS bindings, (SELECT count(*) FROM "GoogleLinkIntent") AS intents, (SELECT count(*) FROM "Token") AS tokens');
+  if (Object.values(authLeftovers.rows[0]).some(value => Number(value) !== 0)) throw new Error('SYNTHETIC_AUTH_CLEANUP_FAILED');
   console.log(JSON.stringify({ passed: true, nativePostgreSQL: true, migrationSql: migrations.length, syntheticOnly: true, providerDelivery: false }));
 } catch (error) {
   console.error(JSON.stringify({ passed: false, reason: /^[A-Z_]{1,80}$/.test(error?.message || '') ? error.message : 'NATIVE_ALERT_GATE_FAILED' }));

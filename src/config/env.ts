@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import { readMailConfiguration } from '@/services/mail/mail-config';
 dotenv.config();
 
-for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED']) {
+for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED', 'GOOGLE_ACCOUNT_LINKING_ENABLED']) {
   if (process.env[name] !== undefined && !['true', 'false'].includes(process.env[name]!)) {
     throw new Error(`Invalid boolean configuration: ${name}`);
   }
@@ -64,6 +64,7 @@ const raw = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || 'placeholder_client_id',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || 'placeholder_client_secret',
+  GOOGLE_ACCOUNT_LINKING_ENABLED: process.env.GOOGLE_ACCOUNT_LINKING_ENABLED === 'true',
   CLOUDINARY: {
     CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
     API_KEY: process.env.CLOUDINARY_API_KEY || '',

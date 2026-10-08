@@ -8,11 +8,20 @@ import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import { ENV } from "@/config/env";
 import { clientIpRateLimitKey } from "@/middlewares/api-gateway";
+import { GoogleLinkController } from "@/controllers/google-link.controller";
+import { z } from "zod";
 
 // Initialize
 const router = Router();
 const authController = new AuthController();
 const authMiddleware = new AuthMiddleware();
+const googleLinkController = new GoogleLinkController();
+const googleLinkPasswordSchema = z.object({ body: z.object({ password: z.string().min(1).max(4096) }).strict() });
+const googleLinkLimiter = rateLimit({
+  keyGenerator: req => (req.user as { sub?: string } | undefined)?.sub || clientIpRateLimitKey(req),
+  windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false,
+  message: { code: 429, status: "error", message: "Too many Google connection attempts. Try again later." },
+});
 
 const authAttemptLimiter = rateLimit({
   keyGenerator: clientIpRateLimitKey,
@@ -68,6 +77,9 @@ router.post("/v1/password-reset/confirm", authAttemptLimiter, validateSchema(res
 router.get("/v1/verify-email", validateSchema(verifyEmailSchema), authController.verifyEmail);
 router.post("/v1/refresh-token", tokenRefreshLimiter, validateSchema(refreshTokenSchema), authController.refresh);
 router.post("/v1/logout", authController.logout);
+router.get("/v1/google/link", authMiddleware.execute, googleLinkController.status);
+router.post("/v1/google/link", authAttemptLimiter, authMiddleware.execute, googleLinkLimiter, validateSchema(googleLinkPasswordSchema), googleLinkController.begin);
+router.post("/v1/google/unlink", authAttemptLimiter, authMiddleware.execute, googleLinkLimiter, validateSchema(googleLinkPasswordSchema), googleLinkController.unlink);
 
 // Google OAuth uses a one-time, HttpOnly state cookie to prevent login CSRF.
 const oauthCookie = {
@@ -82,7 +94,10 @@ router.get("/v1/google", googleOAuthLimiter, (req, res, next) => {
   res.cookie("google_oauth_state", state, oauthCookie);
   return passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
 });
-router.get("/v1/google/callback", (req, res, next) => {
+router.get("/v1/google/callback", googleOAuthLimiter, (req, res, next) => {
+  if (typeof req.query.state === "string" && req.query.state.startsWith("link.")) {
+    return authMiddleware.execute(req, res, () => googleLinkController.callback(req, res));
+  }
   const expected = req.cookies?.google_oauth_state as string | undefined;
   const received = typeof req.query.state === "string" ? req.query.state : undefined;
   res.clearCookie("google_oauth_state", { ...oauthCookie, maxAge: undefined });

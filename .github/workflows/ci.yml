@@ -61,4 +61,6 @@ jobs:
       - run: npm ci
       - run: npm run db:generate
       - run: node scripts/run-native-alert-gate.mjs
-      # Empty ephemeral native database only. No cloud secrets or provider delivery.
+      # Empty ephemeral native database only. Authenticated encrypted snapshots
+      # precede DDL; includes native Google-link transaction/race acceptance.
+      # No cloud secrets or provider delivery.

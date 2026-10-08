@@ -1,7 +1,7 @@
 import { Profile } from "passport-google-oauth20";
 import { UserRepository } from "@/repositories/user.repository";
 import { OAuthAccountRepository } from "@/repositories/oauth-account.repository";
-import { TokenRepository } from "@/repositories/token.repository";
+import { prisma } from "@/lib/prisma";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
 import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
 import { z } from "zod";
@@ -9,7 +9,6 @@ import { z } from "zod";
 export async function GoogleOAuthService(profile: Profile) {
   const userRepository = new UserRepository();
   const oauthAccountRepository = new OAuthAccountRepository();
-  const tokenRepository = new TokenRepository();
 
   try {
     const googleId = profile?.id;
@@ -61,16 +60,21 @@ export async function GoogleOAuthService(profile: Profile) {
       return { code: 403, status: "error", message: "This operational account has no valid department assignment" };
     }
 
-    // 3. Issue JWT pair
-    const refreshToken = signRefreshToken(userId, user.role, TokenExpiry.REFRESH_TOKEN_EXPIRES);
-
-    // 4. Persist refresh token for rotation tracking
-    const session = await tokenRepository.createRefreshToken({
-      userId,
-      token: refreshToken,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    // Serialize issuance with unlink/reset/role changes. A lookup made before
+    // unlink must not mint a fresh Google session after unlink commits.
+    const issued = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      const current = await tx.user.findUnique({ where: { id: userId } });
+      const binding = await tx.oAuthAccount.findUnique({ where: { provider_providerAccountId: { provider: "google", providerAccountId: googleId } } });
+      if (!current || current.status !== "ACTIVE" || !hasValidOperationalAssignment(current) || binding?.userId !== userId) return null;
+      const refreshToken = signRefreshToken(userId, current.role, TokenExpiry.REFRESH_TOKEN_EXPIRES);
+      const session = await tx.token.create({ data: { userId, type: "REFRESH", token: refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
+      return { current, refreshToken, session };
     });
-    const accessToken = signAccessToken(userId, user.role, TokenExpiry.ACCESS_TOKEN_EXPIRES, session.id);
+    if (!issued) return { code: 403, status: "error", message: "Google connection or account access changed. Sign in again." };
+    const { current, refreshToken, session } = issued;
+    const accessToken = signAccessToken(userId, current.role, TokenExpiry.ACCESS_TOKEN_EXPIRES, session.id);
 
     return {
       code: 200,
@@ -78,7 +82,7 @@ export async function GoogleOAuthService(profile: Profile) {
       message: "Google OAuth successful",
       data: {
         tokens: { accessToken, refreshToken },
-        user: withPermissions({ id: user.id, name: user.name, email: user.email, role: user.role, department: user.department, isMainAdmin: user.isMainAdmin }),
+        user: withPermissions({ id: current.id, name: current.name, email: current.email, role: current.role, department: current.department, isMainAdmin: current.isMainAdmin }),
       },
     };
   } catch (error) {

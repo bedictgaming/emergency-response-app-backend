@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findProvider: vi.fn(), createLinkedUser: vi.fn(), createLink: vi.fn(),
   findEmail: vi.fn(), findUser: vi.fn(), createUser: vi.fn(), verifyEmail: vi.fn(),
-  createSession: vi.fn(), access: vi.fn(), refresh: vi.fn(),
+  createSession: vi.fn(), access: vi.fn(), refresh: vi.fn(), transaction: vi.fn(), currentProvider: vi.fn(),
 }));
 vi.mock("@/repositories/oauth-account.repository", () => ({ OAuthAccountRepository: class {
   findByProvider = mocks.findProvider; createUserWithAccount = mocks.createLinkedUser; create = mocks.createLink;
@@ -11,6 +11,7 @@ vi.mock("@/repositories/user.repository", () => ({ UserRepository: class {
   findByEmail = mocks.findEmail; findById = mocks.findUser; create = mocks.createUser; markEmailVerified = mocks.verifyEmail;
 } }));
 vi.mock("@/repositories/token.repository", () => ({ TokenRepository: class { createRefreshToken = mocks.createSession; } }));
+vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction } }));
 vi.mock("@/lib/jwt", () => ({ signAccessToken: mocks.access, signRefreshToken: mocks.refresh,
   TokenExpiry: { REFRESH_TOKEN_EXPIRES: "7d", ACCESS_TOKEN_EXPIRES: "15m" },
 }));
@@ -31,6 +32,9 @@ describe("Google identity boundaries", () => {
     mocks.findProvider.mockResolvedValue(null); mocks.findEmail.mockResolvedValue(null);
     mocks.createLinkedUser.mockResolvedValue({ userId: user.id }); mocks.findUser.mockResolvedValue(user);
     mocks.createSession.mockResolvedValue({ id: "session" }); mocks.access.mockReturnValue("access"); mocks.refresh.mockReturnValue("refresh");
+    mocks.currentProvider.mockResolvedValue({ userId: user.id });
+    mocks.transaction.mockImplementation(callback => callback({ $queryRaw: vi.fn(), user: { findUnique: mocks.findUser },
+      oAuthAccount: { findUnique: mocks.currentProvider }, token: { create: mocks.createSession } }));
   });
   it("never links or verifies an existing admin by matching email", async () => {
     mocks.findEmail.mockResolvedValue({ ...user, role: "ADMIN", emailVerified: null });
@@ -96,5 +100,11 @@ describe("Google identity boundaries", () => {
     expect((await GoogleOAuthService(profile())).code).toBe(409);
     expect(mocks.findEmail).toHaveBeenCalledOnce(); expect(mocks.createLink).not.toHaveBeenCalled();
     expect(mocks.createSession).not.toHaveBeenCalled(); expect(mocks.verifyEmail).not.toHaveBeenCalled();
+  });
+  it("does not issue a late Google session after unlink commits", async () => {
+    mocks.findProvider.mockResolvedValue({ userId: user.id });
+    mocks.currentProvider.mockResolvedValue(null);
+    expect((await GoogleOAuthService(profile())).code).toBe(403);
+    expect(mocks.createSession).not.toHaveBeenCalled(); expect(mocks.refresh).not.toHaveBeenCalled();
   });
 });
