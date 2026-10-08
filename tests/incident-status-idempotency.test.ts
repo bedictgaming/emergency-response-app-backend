@@ -27,43 +27,26 @@ describe('incident status idempotency', () => {
 
   it('reconciles a same-target concurrent update as success', async () => {
     vi.spyOn(IncidentRepository.prototype, 'findById')
-      .mockResolvedValueOnce(incident('ACTIVE') as never)
-      .mockResolvedValueOnce(incident('RESOLVED') as never);
+      .mockResolvedValueOnce(incident('RESOLVED') as never)
+      .mockResolvedValueOnce(incident('CLOSED') as never);
     mocks.transaction.mockImplementation(async callback => callback({
       incident: { update: vi.fn().mockRejectedValue({ code: 'P2025' }) },
       auditLog: { create: vi.fn() },
     }));
-    const result = await UpdateIncidentService('incident-id', { status: 'RESOLVED' }, 'operator');
+    const result = await UpdateIncidentService('incident-id', { status: 'CLOSED' }, 'operator');
     expect(result.code).toBe(200);
-    expect(result.data?.incident.status).toBe('RESOLVED');
+    expect(result.data?.incident.status).toBe('CLOSED');
     expect(result.data?.incident.attachments?.[0]).not.toHaveProperty('publicId');
     expect(mocks.publish).not.toHaveBeenCalled();
   });
 
-  it('allows the main-admin workflow to resolve a responding incident and all service responses', async () => {
-    vi.spyOn(IncidentRepository.prototype, 'findById').mockResolvedValue(incident('RESPONDING') as never);
-    const updateIncident = vi.fn().mockResolvedValue({ ...incident('RESOLVED'), serviceResponses: [{ service: 'FIRE', status: 'RESPONDING' }] });
-    const findUpdatedIncident = vi.fn().mockResolvedValue({ ...incident('RESOLVED'), serviceResponses: [{ service: 'FIRE', status: 'RESOLVED' }] });
-    const updateResponses = vi.fn().mockResolvedValue({ count: 2 });
-    const createAudit = vi.fn().mockResolvedValue({});
-    mocks.transaction.mockImplementation(async callback => callback({
-      incident: { update: updateIncident, findUniqueOrThrow: findUpdatedIncident },
-      incidentServiceResponse: { updateMany: updateResponses },
-      auditLog: { create: createAudit },
-    }));
-
+  it.each(['OPEN', 'ACTIVE', 'RESPONDING', 'RESOLVED', 'CLOSED'])('rejects direct overall resolution even for Main Admin, with existing status %s', async status => {
+    const find = vi.spyOn(IncidentRepository.prototype, 'findById').mockResolvedValue(incident(status) as never);
     const result = await UpdateIncidentService('incident-id', { status: 'RESOLVED' }, 'main-admin');
-
-    expect(result.code).toBe(200);
-    expect(result.data?.incident.serviceResponses).toEqual([{ service: 'FIRE', status: 'RESOLVED' }]);
-    expect(result.data?.incident.attachments?.[0]).not.toHaveProperty('publicId');
-    expect(updateResponses).toHaveBeenCalledWith(expect.objectContaining({
-      where: { incidentId: 'incident-id', status: { not: 'RESOLVED' } },
-      data: expect.objectContaining({ status: 'RESOLVED', resolvedBy: 'main-admin' }),
-    }));
-    expect(createAudit).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ action: 'INCIDENT_RESOLVED_OVERRIDE' }),
-    }));
+    expect(result.code).toBe(403);
+    expect(find).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 
   it('rejects category changes before they can transfer an incident without its response work', async () => {

@@ -1,0 +1,7 @@
+# Main Admin monitoring and department handoff
+
+Main Admin retains incident alerts but cannot acknowledge its own queue or override overall/per-service resolution. Any assigned Fire, Medical, Police or DRRMO ADMIN acknowledging the current service alert atomically records current global MAIN handoff receipts for active Main Admins. Other departments keep personal alerts; DISPATCHER acknowledgement remains personal. Acknowledgement does not resolve the incident. Overall completion is derived from all requested department responses finishing.
+
+Existing incident locks, fresh session/RBAC checks, evidence guards, audit, outbox relevance, version fencing and permitted reopening/close/delete remain. Same-version retries do not clear a new Main alert after another department reopens. Main filtered views use the same global receipt. No schema migration, backfill or bulk acknowledgement is required.
+
+Local verification: 548 backend tests passed / 26 gated skipped; 54 targeted tests; six embedded SQL integration cases (two native races require hosted PostgreSQL); 79 selected fresh-export browser checks passed. Initial missing dummy-DB and stale-export failures are retained as historical diagnostic evidence, not acceptance. Native PostgreSQL and full exact-source hosted checks plus contained staging acceptance are release gates. Deploy backend before frontend. No production test reports, emails or dispatches are permitted.

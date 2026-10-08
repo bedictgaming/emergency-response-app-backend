@@ -35,11 +35,15 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
     const fresh = await currentActor(tx, actor);
     const scope = fresh && attentionScope(fresh, requested);
     if (!fresh || !scope) return null;
+    const mainMonitoring = isMainAdministrator(fresh);
     const service = scope === 'MAIN' ? Prisma.sql`TRUE` : Prisma.sql`(
       ((s.status IS NULL OR s.status = 'RESPONDING') AND ${scope}::"ResponseService" = ANY(i.requested_services)) OR
       (cardinality(i.requested_services) = 0 AND LOWER(t.type_name) LIKE ${`%${scope.toLowerCase()}%`} AND (s.status IS NULL OR s.status = 'RESPONDING'))
     )`;
     const version = scope === 'MAIN' ? Prisma.sql`i.attention_version` : Prisma.sql`COALESCE(s.attention_version, i.attention_version)`;
+    // Main Admin's global handoff is shared across its filtered service views.
+    const acknowledgementScope = mainMonitoring ? 'MAIN' : scope;
+    const acknowledgementVersion = mainMonitoring ? Prisma.sql`i.attention_version` : version;
     const ids = await tx.$queryRaw<Array<{ incidentId: string; version: number }>>(Prisma.sql`
       SELECT i.incident_id AS "incidentId", ${version} AS version FROM incidents i
       JOIN incident_types t ON t.type_id = i.type_id
@@ -47,7 +51,7 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
       WHERE i.verification_status = 'VERIFIED' AND i.status IN ('OPEN','ACTIVE','RESPONDING') AND i.merged_into_id IS NULL
         AND ${service}
         AND NOT EXISTS (SELECT 1 FROM incident_acknowledgements a WHERE a.user_id = ${actor.sub}
-          AND a.incident_id = i.incident_id AND a.scope = ${scope} AND a.version = ${version})
+          AND a.incident_id = i.incident_id AND a.scope = ${acknowledgementScope} AND a.version = ${acknowledgementVersion})
       ORDER BY i.reported_at ASC, i.incident_id ASC LIMIT 51
     `);
     const page = ids.slice(0, 50);
@@ -57,7 +61,8 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
       reporter: { select: { name: true } },
     } });
     const byId = new Map(rows.map(item => [item.incidentId, item]));
-    return { scope, hasMore: ids.length > 50, items: page.map(item => ({ ...byId.get(item.incidentId)!, version: item.version, scope })) };
+    return { scope, acknowledgementMode: mainMonitoring ? 'DEPARTMENT_HANDOFF' as const : 'PERSONAL' as const,
+      hasMore: ids.length > 50, items: page.map(item => ({ ...byId.get(item.incidentId)!, version: item.version, scope })) };
   }, { isolationLevel: 'RepeatableRead' });
 }
 
@@ -68,6 +73,9 @@ export async function acknowledgeIncidentAttention(actor: JwtPayload, incidentId
     const fresh = await currentActor(tx, actor);
     const scope = fresh && attentionScope(fresh, requested);
     if (!fresh || !scope) return 403;
+    // Main monitors the queue but cannot acknowledge its own alerts, including
+    // a department-filtered view. Only an assigned department admin hands off.
+    if (isMainAdministrator(fresh)) return 403;
     await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
     const incident = await tx.incident.findFirst({ where: { incidentId, ...(scope !== 'MAIN' && departmentIncidentScope({ ...fresh, department: scope === 'HAZARD' ? 'DRRMO' : scope as Department, isMainAdmin: false })) }, include: { serviceResponses: true } });
     if (!incident) return 404;
@@ -76,7 +84,21 @@ export async function acknowledgeIncidentAttention(actor: JwtPayload, incidentId
     if (existing?.version === version) return 200;
     await tx.incidentAcknowledgement.upsert({ where: { userId_incidentId_scope: { userId: actor.sub, incidentId, scope } },
       create: { userId: actor.sub, incidentId, scope, version }, update: { version, createdAt: new Date() } });
-    await tx.auditLog.create({ data: { actorId: actor.sub, action: 'INCIDENT_ATTENTION_ACKNOWLEDGED', entityType: 'Incident', entityId: incidentId, metadata: { scope, version } } });
+    let mainAdminAlertCount = 0;
+    if (fresh.role === 'ADMIN' && departmentService(fresh.department) === scope) {
+      const mainAdmins = await tx.user.findMany({ where: { status: 'ACTIVE', role: 'ADMIN', department: 'MAIN', isMainAdmin: true }, select: { id: true }, orderBy: { id: 'asc' } });
+      for (const main of mainAdmins) {
+        await tx.incidentAcknowledgement.upsert({ where: { userId_incidentId_scope: { userId: main.id, incidentId, scope: 'MAIN' } },
+          create: { userId: main.id, incidentId, scope: 'MAIN', version: incident.attentionVersion },
+          update: { version: incident.attentionVersion, createdAt: new Date() } });
+      }
+      mainAdminAlertCount = mainAdmins.length;
+    }
+    // These MAIN rows are department handoff receipts, not incident resolution
+    // or acknowledgements for another response department. The incident lock
+    // fences the global version against completion/reopening races.
+    await tx.auditLog.create({ data: { actorId: actor.sub, action: 'INCIDENT_ATTENTION_ACKNOWLEDGED', entityType: 'Incident', entityId: incidentId,
+      metadata: { scope, version, mainAdminAlertCount, ...(mainAdminAlertCount > 0 && { mainAlertVersion: incident.attentionVersion }) } } });
     return 200;
   });
   if (result === 200) publishEmergencyEvent({ type: 'incident.updated', entityId: incidentId });

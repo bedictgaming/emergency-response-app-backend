@@ -36,11 +36,13 @@ it('suppresses delayed pushes for this personal acknowledgement but not a later 
   mocks.incident.mockResolvedValue({ ...incident, attentionVersion: 2, serviceResponses: [{ service: 'FIRE', status: 'RESPONDING', attentionVersion: 2 }] });
   expect(await notificationRelevant({ ...job(), eventType: 'INCIDENT_REOPENED', payload: { data: { incidentId: 'incident', responseService: 'FIRE', attentionVersion: '2', serviceAttentionVersion: '2' } } }, 'staff')).toBe(true);
 });
-it('uses the main-admin acknowledgement scope, not a department acknowledgement', async () => {
+it('uses the Main department-handoff receipt and does not suppress a new reopened version', async () => {
   mocks.user.mockResolvedValue({ role: 'ADMIN', status: 'ACTIVE', department: 'MAIN', isMainAdmin: true });
   mocks.acknowledgement.mockResolvedValue({ version: 1 });
   expect(await notificationRelevant(job(), 'staff')).toBe(false);
   expect(mocks.acknowledgement).toHaveBeenCalledWith(expect.objectContaining({ where: { userId_incidentId_scope: { userId: 'staff', incidentId: 'incident', scope: 'MAIN' } } }));
+  mocks.incident.mockResolvedValue({ ...incident, attentionVersion: 2 });
+  expect(await notificationRelevant({ ...job(), eventType: 'INCIDENT_REOPENED', payload: { data: { incidentId: 'incident', responseService: 'FIRE', attentionVersion: '2', serviceAttentionVersion: '2' } } }, 'staff')).toBe(true);
 });
 it('does not turn a database outage into a completed/suppressed notification', async () => {
   mocks.incident.mockRejectedValue(new Error('database unavailable')); await expect(notificationRelevant(job(), 'staff')).rejects.toThrow();

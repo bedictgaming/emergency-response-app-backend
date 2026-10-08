@@ -60,10 +60,16 @@ suite('actual database attention/RBAC/workflow contracts', () => {
     expect((await getQueue(5)).status).toBe(403); expect((await getQueue(1, '?responseService=POLICE')).status).toBe(403);
     expect((await getQueue(1, '?responseService=FIRE&limit=100000')).status).toBe(400);
   });
-  it('acknowledges one account/version, retains another department, and brings hidden tail work into the bounded window', async () => {
+  it('assigned department Admin acknowledgements clear Main but retain other departments and bounded tail work', async () => {
     expect((await ack(1, ids[0], 1)).status).toBe(200); expect((await ack(1, ids[1], 1)).status).toBe(200);
     const fire = (await getQueue(1)).body.data; expect(fire.items).toHaveLength(50); expect(fire.hasMore).toBe(false);
     expect(fire.items.at(-1).incidentId).toBe(ids[51]); expect((await getQueue(2)).body.data.items[0].incidentId).toBe(ids[0]);
+    const main = (await getQueue(0)).body.data;
+    expect(main.acknowledgementMode).toBe('DEPARTMENT_HANDOFF'); expect(main.items[0].incidentId).toBe(ids[2]);
+    expect((await getQueue(0, '?responseService=FIRE')).body.data.items[0].incidentId).toBe(ids[2]);
+    expect((await ack(0, ids[2], 1)).status).toBe(403);
+    expect((await ack(3, ids[2], 1)).status).toBe(404);
+    expect((await getQueue(0)).body.data.items[0].incidentId).toBe(ids[2]);
     expect((await prisma.incident.findUniqueOrThrow({ where: { incidentId: ids[0] } })).status).toBe('RESPONDING');
     const audits = await prisma.auditLog.count({ where: { actorId: users[1].id, action: 'INCIDENT_ATTENTION_ACKNOWLEDGED' } });
     expect((await ack(1, ids[0], 1)).status).toBe(200);
@@ -77,23 +83,30 @@ suite('actual database attention/RBAC/workflow contracts', () => {
     expect(incident.attentionVersion).toBe(2); expect(incident.serviceResponses.find(item => item.service === 'FIRE')?.attentionVersion).toBe(2);
     expect(incident.serviceResponses.find(item => item.service === 'MEDICAL')?.attentionVersion).toBe(1);
     expect((await ack(1, ids[0], 1)).status).toBe(409); expect((await getQueue(1)).body.data.items[0].version).toBe(2);
+    expect((await getQueue(0)).body.data.items[0]).toMatchObject({ incidentId: ids[0], version: 2 });
     const versionTime = incident.updatedAt;
     expect((await update('RESPONDING')).status).toBe(200);
     expect((await prisma.incident.findUniqueOrThrow({ where: { incidentId: ids[0] } })).updatedAt).toEqual(versionTime);
     expect(await prisma.notificationOutbox.count({ where: { eventType: 'INCIDENT_REOPENED' } })).toBe(1);
   });
-  it('drops delayed pushes after personal acknowledgement while keeping the other department eligible', async () => {
+  it('drops delayed Main pushes after assigned department acknowledgement while keeping the other department eligible', async () => {
     const job = { eventType: 'INCIDENT_REOPENED', createdAt: new Date(), userIds: [users[0].id, users[1].id], audienceIds: [users[0].id, users[1].id],
       payload: { data: { incidentId: ids[0], attentionVersion: '2', serviceAttentionVersion: '2', responseService: 'FIRE' } } };
     expect(await notificationRelevant(job, users[1].id)).toBe(true);
     expect((await ack(1, ids[0], 2)).status).toBe(200);
     expect(await notificationRelevant(job, users[1].id)).toBe(false);
-    expect(await notificationRelevant(job, users[0].id)).toBe(true);
-    expect((await ack(0, ids[0], 2)).status).toBe(200);
+    expect((await ack(0, ids[0], 2)).status).toBe(403);
     expect(await notificationRelevant(job, users[0].id)).toBe(false);
     const medicalCreation = { ...job, eventType: 'INCIDENT_CREATED', userIds: [users[2].id], audienceIds: [users[2].id],
       payload: { data: { incidentId: ids[0], attentionVersion: '1', serviceAttentionVersion: '1' } } };
     expect(await notificationRelevant(medicalCreation, users[2].id)).toBe(true);
+  });
+  it('Main Admin cannot resolve overall or individual department responses through real HTTP routes', async () => {
+    const before = await prisma.incident.findUniqueOrThrow({ where: { incidentId: ids[3] }, include: { serviceResponses: true } });
+    expect((await request(app).put(`/api/incidents/v1/${ids[3]}`).set('Cookie', users[0].cookie).set('Origin', ENV.FRONTEND_URL).send({ status: 'RESOLVED' })).status).toBe(403);
+    expect((await request(app).patch(`/api/incidents/v1/${ids[3]}/services/FIRE`).set('Cookie', users[0].cookie).set('Origin', ENV.FRONTEND_URL).send({ status: 'RESOLVED' })).status).toBe(403);
+    const after = await prisma.incident.findUniqueOrThrow({ where: { incidentId: ids[3] }, include: { serviceResponses: true } });
+    expect(after).toEqual(before);
   });
   // Opt in only on native disposable PostgreSQL. The embedded socket harness
   // serializes SQL and must not be reported as a multi-session race test.
@@ -106,6 +119,7 @@ suite('actual database attention/RBAC/workflow contracts', () => {
     expect([200,409]).toContain(acknowledged.status);
     const queue = (await getQueue(1)).body.data.items;
     expect(queue.find((item: { incidentId: string }) => item.incidentId === ids[2])?.version).toBe(2);
+    expect((await getQueue(0)).body.data.items.find((item: { incidentId: string }) => item.incidentId === ids[2])?.version).toBe(2);
     const responses = await prisma.incidentServiceResponse.findMany({ where: { incidentId: ids[2] } });
     expect(responses.find(item => item.service === 'MEDICAL')?.attentionVersion).toBe(1);
     expect(await prisma.notificationOutbox.count({ where: { eventType: 'INCIDENT_REOPENED', payload: { path: ['data','incidentId'], equals: ids[2] } } })).toBe(1);

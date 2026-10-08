@@ -9,6 +9,7 @@ import { incidentNotificationAudience } from '@/lib/incident-notification-audien
 
 export async function UpdateServiceResponseService(incidentId: string, service: ResponseService, status: ServiceResponseStatus, actor: JwtPayload) {
   if (!["ADMIN", "DISPATCHER"].includes(actor.role)) return { code: 403, status: "error", message: "Operational role required" };
+  if (isMainAdministrator(actor) && status === "RESOLVED") return { code: 403, status: "error", message: "Only the assigned department can resolve this response" };
   if (!isMainAdministrator(actor) && departmentService(actor.department) !== service) return { code: 403, status: "error", message: "You may only update your own department response" };
   try {
     const result = await prisma.$transaction(async tx => {

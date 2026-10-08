@@ -19,6 +19,13 @@ vi.mock('@/lib/incident-notification-audience', () => ({ incidentNotificationAud
 import { UpdateServiceResponseService } from "@/services/incident/update-service-response-service";
 
 describe("multi-service completion", () => {
+  it.each(['FIRE', 'MEDICAL', 'POLICE', 'HAZARD'] as const)('Main Admin cannot bypass resolution ownership through the %s response endpoint', async service => {
+    const result = await UpdateServiceResponseService('incident', service, 'RESOLVED', { sub: 'main', role: 'ADMIN', type: 'access', department: 'MAIN', isMainAdmin: true });
+    expect(result.code).toBe(403);
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.updateService).not.toHaveBeenCalled();
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.updateService.mockResolvedValue({ service: "MEDICAL", status: "RESOLVED" });

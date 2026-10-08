@@ -10,8 +10,8 @@ const incidentRepository = new IncidentRepository();
 // Valid status transition map
 const VALID_TRANSITIONS: Record<string, string[]> = {
   OPEN: ["ACTIVE"],
-  ACTIVE: ["RESOLVED"],
-  RESPONDING: ["RESOLVED"],
+  ACTIVE: [],
+  RESPONDING: [],
   RESOLVED: ["CLOSED"],
   CLOSED: [],
 };
@@ -21,6 +21,11 @@ export const UpdateIncidentService = async (
   data: UpdateIncidentInput,
   actorId?: string,
 ) => {
+  // Overall completion belongs exclusively to the department-response workflow.
+  // Reject even direct/internal calls, not only the removed dashboard control.
+  if (data.status === "RESOLVED") {
+    return { code: 403, status: "error", message: "Only the assigned departments can resolve their responses. The incident resolves when all requested services finish." };
+  }
   try {
     const existing = await incidentRepository.findById(id);
 
@@ -73,35 +78,21 @@ export const UpdateIncidentService = async (
     }
 
     const incident = await prisma.$transaction(async (tx) => {
-      const isMainAdminResolutionOverride = data.status === "RESOLVED"
-        && ["ACTIVE", "RESPONDING"].includes(existing.status);
-      const resolvedAt = isMainAdminResolutionOverride ? new Date() : undefined;
       const updated = await tx.incident.update({
         where: { incidentId: id, status: existing.status, verificationStatus: existing.verificationStatus, updatedAt: existing.updatedAt },
         data,
         include: { type: true, location: true, barangay: true, attachments: true, serviceResponses: true },
       });
-      if (isMainAdminResolutionOverride) {
-        await tx.incidentServiceResponse.updateMany({
-          where: { incidentId: id, status: { not: "RESOLVED" } },
-          data: { status: "RESOLVED", resolvedAt, resolvedBy: actorId },
-        });
-      }
       await tx.auditLog.create({
         data: {
           actorId,
-          action: isMainAdminResolutionOverride ? "INCIDENT_RESOLVED_OVERRIDE" : "INCIDENT_UPDATED",
+          action: "INCIDENT_UPDATED",
           entityType: "Incident",
           entityId: id,
-          metadata: { changes: data, ...(isMainAdminResolutionOverride && { completedAllServiceResponses: true }) },
+          metadata: { changes: data },
         },
       });
-      return isMainAdminResolutionOverride
-        ? tx.incident.findUniqueOrThrow({
-          where: { incidentId: id },
-          include: { type: true, location: true, barangay: true, attachments: true, serviceResponses: true },
-        })
-        : updated;
+      return updated;
     });
     publishEmergencyEvent({ type: "incident.updated", entityId: id });
 
