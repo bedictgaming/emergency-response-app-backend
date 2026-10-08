@@ -56,7 +56,7 @@ router.post('/v1/:id/attention/acknowledge', authMiddleware.execute, permittedRo
   if (!z.uuid().safeParse(req.params.id).success || !body.success) return res.status(400).json({ message: 'Invalid acknowledgement' });
   try {
     const code = await acknowledgeIncidentAttention(req.user as JwtPayload, String(req.params.id), body.data.version, body.data.responseService);
-    return res.status(code).json({ message: code === 200 ? 'Acknowledged for your account only; response status unchanged' : code === 409 ? 'Alert changed; refresh the queue' : 'Alert unavailable' });
+    return res.status(code).json({ message: code === 200 ? 'Alert acknowledgement saved; response status unchanged' : code === 409 ? 'Alert changed; refresh the queue' : 'Alert unavailable' });
   } catch { return res.status(503).json({ message: 'Acknowledgement not confirmed. Retry safely.' }); }
 });
 router.get("/v1/:id", authMiddleware.execute, requireIncidentAccess, incidentController.getById);
