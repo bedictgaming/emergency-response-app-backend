@@ -1,0 +1,5 @@
+# Citizen access removal release — 2026-10-09
+
+Scoped successor to production 9c88c570. Remove the active verification controller/schema/service exports. All methods on verify-email, google/link and google/unlink return side-effect-free no-store 410; a namespaced link. callback is rejected before Passport/session/provider exchange. No email-match automatic linking. Preserve immediate citizen registration/login, ordinary Google sign-in, existing provider bindings, password recovery, unified session authorization, evidence and incident workflow invariants.
+
+Require exact-source hosted CI, byte-verified clean source archives, contained staging acceptance, production schema/history compatibility and paired first-party runtime checks. No migrations, account/provider/session removal, hosted variable changes or real mail/provider writes. Production keeps twelve matching migrations; staging's previously applied thirteenth additive GoogleLinkIntent migration/table is retained and unused. Do not deploy dirty primary workspaces or the withdrawn Google-link implementation.

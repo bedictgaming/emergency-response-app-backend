@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { Profile } from "passport-google-oauth20";
-import { SignupUserService, LoginCredentialsService, VerifyEmailService, RefreshTokenService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
+import { SignupUserService, LoginCredentialsService, RefreshTokenService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
 import { TokenExpiry, toMilliseconds, verifyAccessToken, type JwtPayload } from "@/lib/jwt";
 import { ENV } from "@/config/env";
 import { prisma } from "@/lib/prisma";
@@ -62,24 +62,6 @@ export class AuthController {
     return res.status(result.code).json(result);
   };
 
-  // Legacy verification is optional for citizens and creates no session.
-  public verifyEmail = async (req: Request, res: Response) => {
-    const token = req.query.token as string;
-    const result = await VerifyEmailService(token);
-
-    // Explicit same-origin UI action; ordinary emailed GET navigation still redirects.
-    if (req.get('Accept') === 'application/json') {
-      return res.status(result.code).json(result);
-    }
-    
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    if (result.code === 200) {
-      return res.redirect(`${frontendUrl}/?verified=true`);
-    } else {
-      return res.redirect(`${frontendUrl}/?error=verification_failed`);
-    }
-  };
-  
   // Handle Login Account
   public login = async (req: Request, res: Response) => {
     const { email, password } = req.body ?? {};
