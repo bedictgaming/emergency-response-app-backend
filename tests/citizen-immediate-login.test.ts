@@ -25,7 +25,7 @@ it.each(['ADMIN', 'DISPATCHER', 'RESPONDER', 'UNKNOWN'])('unverified %s cannot o
   expect((await LoginCredentialsService(citizen.email, 'SyntheticOnly123')).code).toBe(403);
   expect(mocks.session).not.toHaveBeenCalled(); expect(mocks.access).not.toHaveBeenCalled();
 });
-it.each([{ role: 'ADMIN', department: 'MAIN', isMainAdmin: true }, { role: 'ADMIN', department: 'FIRE' }, { role: 'DISPATCHER', department: 'POLICE' }, { role: 'RESPONDER', department: 'MEDICAL' }])('verified operational assignments still work: %j', async assignment => {
+it.each([{ role: 'ADMIN', department: 'MAIN', isMainAdmin: true }, { role: 'ADMIN', department: 'FIRE' }, { role: 'DISPATCHER', department: 'POLICE' }])('verified operational assignments still work: %j', async assignment => {
   mocks.find.mockResolvedValue({ ...citizen, ...assignment, emailVerified: new Date() });
   expect((await LoginCredentialsService(citizen.email, 'SyntheticOnly123')).code).toBe(200);
 });
@@ -42,4 +42,10 @@ it('verified operational accounts still need valid assignments', async () => {
   mocks.find.mockResolvedValue({ ...citizen, role: 'ADMIN', emailVerified: new Date() });
   expect((await LoginCredentialsService(citizen.email, 'SyntheticOnly123')).code).toBe(403);
   expect(mocks.session).not.toHaveBeenCalled();
+});
+it.each(['RESPONDER', 'UNKNOWN'])('verified %s cannot obtain a session', async role => {
+  mocks.find.mockResolvedValue({ ...citizen, role, emailVerified: new Date(), department: 'FIRE' });
+  expect((await LoginCredentialsService(citizen.email, 'SyntheticOnly123')).code).toBe(403);
+  expect(mocks.session).not.toHaveBeenCalled();
+  expect(mocks.access).not.toHaveBeenCalled();
 });

@@ -49,3 +49,9 @@ it('verified staff still need valid assignments for renewal', async () => {
   expect((await RefreshTokenService('synthetic-old-refresh')).code).toBe(403);
   expect(mocks.transaction).not.toHaveBeenCalled();
 });
+it('a retired responder cannot rotate even a valid verified session', async () => {
+  mocks.findUser.mockResolvedValue({ ...citizen, role: 'RESPONDER', emailVerified: new Date(), department: 'FIRE' });
+  expect((await RefreshTokenService('synthetic-old-refresh')).code).toBe(403);
+  expect(mocks.transaction).not.toHaveBeenCalled();
+  expect(mocks.access).not.toHaveBeenCalled();
+});

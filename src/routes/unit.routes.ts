@@ -15,14 +15,14 @@ const resourceController = new ResourceController();
 const authMiddleware = new AuthMiddleware();
 
 // Authenticated Routes — any logged-in user can view units
-router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), unitController.getAll);
-router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), requireUnitDepartment, unitController.getById);
+router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), unitController.getAll);
+router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), requireUnitDepartment, unitController.getById);
 
 // Nested Resource Routes — GET /units/v1/:unitId/resources
 router.get(
   "/v1/:unitId/resources",
   authMiddleware.execute,
-  permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]),
+  permittedRole([Role.ADMIN, Role.DISPATCHER]),
   requireUnitDepartment,
   resourceController.getByUnit
 );

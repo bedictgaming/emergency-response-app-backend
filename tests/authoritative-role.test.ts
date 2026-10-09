@@ -214,3 +214,13 @@ describe("database-authoritative roles", () => {
     expect(next).not.toHaveBeenCalled();
   });
 });
+it('rejects a retired responder with an active session regardless of stale ADMIN claims', async () => {
+  const sessionId = '22222222-2222-4222-8222-222222222222';
+  mocks.verifyAccessToken.mockReturnValue({ sub: '11111111-1111-4111-8111-111111111111', role: Role.ADMIN, type: 'access', sessionId });
+  mocks.findUser.mockResolvedValue({ role: Role.RESPONDER, status: 'ACTIVE', department: 'FIRE', tokens: [{ id: sessionId }] });
+  const response = responseMock();
+  const next = vi.fn();
+  await new AuthMiddleware().execute({ headers: { authorization: 'Bearer synthetic-only' } } as never, response as never, next);
+  expect(response.status).toHaveBeenCalledWith(403);
+  expect(next).not.toHaveBeenCalled();
+});

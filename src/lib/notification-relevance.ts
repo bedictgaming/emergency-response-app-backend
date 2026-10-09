@@ -18,7 +18,7 @@ export async function notificationRelevant(job: NotificationJob, userId: string)
     role: true, status: true, department: true, isMainAdmin: true,
     responder: { select: { responderId: true, status: true, unit: { select: { unitType: true } } } },
   } });
-  if (!user || user.status !== 'ACTIVE') return false;
+  if (!user || user.status !== 'ACTIVE' || !['USER', 'ADMIN', 'DISPATCHER'].includes(user.role)) return false;
   const data = (job.payload as { data?: Record<string, string> })?.data ?? {};
   if (job.eventType === 'ALERT_CREATED') return Boolean(data.alertId && await prisma.alert.findUnique({ where: { alertId: data.alertId }, select: { alertId: true } }));
   if (!data.incidentId) return false;

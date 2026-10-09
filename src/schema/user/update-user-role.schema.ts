@@ -8,8 +8,8 @@ export const updateUserRoleSchema = z.object({
       .uuid("User ID must be a valid UUID"),
   }),
   body: z.object({
-    role: z.nativeEnum(Role, {
-      message: "role must be one of: USER, DISPATCHER, RESPONDER, ADMIN",
+    role: z.enum([Role.USER, Role.DISPATCHER, Role.ADMIN], {
+      message: "role must be one of: USER, DISPATCHER, ADMIN",
     }),
     department: z.nativeEnum(Department).nullable().optional(),
     isMainAdmin: z.boolean().optional(),

@@ -12,6 +12,7 @@ export const CreateTaskService = async (
   actorId?: string,
 ) => {
   try {
+    if (data.assignedTo != null) return { code: 400, status: "error", message: "Responder assignments have been retired" };
     // Verify incident exists
     const incident = await taskRepository.findIncidentById(incidentId);
     if (!incident) {
@@ -29,18 +30,6 @@ export const CreateTaskService = async (
 
     if (incident.verificationStatus !== "VERIFIED") {
       return { code: 409, status: "error", message: "Tasks can only be created for verified incidents" };
-    }
-
-    // Verify assignedTo responder exists if provided
-    if (data.assignedTo) {
-      const responder = await taskRepository.findResponderById(data.assignedTo);
-      if (!responder) {
-        return {
-          code: 404,
-          status: "error",
-          message: "Responder not found. Please provide a valid assignedTo UUID.",
-        };
-      }
     }
 
     const task = await prisma.$transaction(async (tx) => {

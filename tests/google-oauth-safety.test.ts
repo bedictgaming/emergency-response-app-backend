@@ -83,6 +83,12 @@ describe("Google identity boundaries", () => {
     mocks.findProvider.mockResolvedValue({ userId: user.id }); mocks.findUser.mockResolvedValue({ ...user, status: "INACTIVE" });
     expect((await GoogleOAuthService(profile())).code).toBe(403); noWrites();
   });
+  it("denies a retired responder even with an existing Google binding", async () => {
+    mocks.findProvider.mockResolvedValue({ userId: user.id });
+    mocks.findUser.mockResolvedValue({ ...user, role: "RESPONDER", department: "FIRE" });
+    expect((await GoogleOAuthService(profile())).code).toBe(403);
+    noWrites();
+  });
   it("denies linked operational accounts without an assignment", async () => {
     mocks.findProvider.mockResolvedValue({ userId: user.id }); mocks.findUser.mockResolvedValue({ ...user, role: "ADMIN" });
     expect((await GoogleOAuthService(profile())).code).toBe(403); noWrites();

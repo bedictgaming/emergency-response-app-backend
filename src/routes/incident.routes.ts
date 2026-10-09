@@ -146,7 +146,7 @@ router.post(
 router.get(
   "/v1/:incidentId/units",
   authMiddleware.execute,
-  permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]),
+  permittedRole([Role.ADMIN, Role.DISPATCHER]),
   requireIncidentAccess,
   incidentUnitController.getAll
 );
@@ -176,7 +176,7 @@ router.post(
 router.get(
   "/v1/:incidentId/tasks",
   authMiddleware.execute,
-  permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]),
+  permittedRole([Role.ADMIN, Role.DISPATCHER]),
   requireIncidentAccess,
   taskController.getAll
 );

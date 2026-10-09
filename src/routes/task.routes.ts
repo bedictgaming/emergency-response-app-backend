@@ -13,16 +13,16 @@ const taskController = new TaskController();
 const authMiddleware = new AuthMiddleware();
 
 // GET /tasks/v1/ — all authenticated users can list/filter tasks
-router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), taskController.getAll);
+router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), taskController.getAll);
 
 // GET /tasks/v1/:id — all authenticated users can view task detail
-router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), requireTaskDepartment, taskController.getById);
+router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), requireTaskDepartment, taskController.getById);
 
 // PUT /tasks/v1/:id — all authenticated users (RBAC enforced in service)
 router.put(
   "/v1/:id",
   authMiddleware.execute,
-  permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]),
+  permittedRole([Role.ADMIN, Role.DISPATCHER]),
   requireTaskDepartment,
   validateSchema(updateTaskSchema),
   requireTargetResponderDepartment,

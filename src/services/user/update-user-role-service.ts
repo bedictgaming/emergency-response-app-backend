@@ -4,6 +4,7 @@ import { ensureMainAdministratorRemains, UserAdministrationError, userAdministra
 
 export const UpdateUserRoleService = async (id: string, role: Role, actorId?: string, department?: Department | null, isMainAdmin = false) => {
   try {
+    if (role === Role.RESPONDER) return { code: 400, status: 'error', message: 'Responder access has been retired' };
     if ((role === Role.ADMIN || role === Role.DISPATCHER) && !department) {
       return { code: 400, status: "error", message: "An operational department is required" };
     }
@@ -16,8 +17,8 @@ export const UpdateUserRoleService = async (id: string, role: Role, actorId?: st
       if (id === actorId && isMainAdministrator(existing) && !isMainAdministrator(assignment)) {
         throw new UserAdministrationError(400, 'You cannot remove your own main administrator access or change your own department');
       }
-      if (existing.responder && role !== Role.RESPONDER) {
-        throw new UserAdministrationError(409, 'Remove the responder profile before changing this role');
+      if (existing.responder || existing.role === Role.RESPONDER) {
+        throw new UserAdministrationError(409, 'Retired responder records are retained for audit and cannot be reassigned here');
       }
       await ensureMainAdministratorRemains(tx, existing, { ...assignment, status: existing.status });
       const user = await tx.user.update({ where: { id }, data: assignment,

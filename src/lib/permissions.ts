@@ -38,7 +38,9 @@ export function isMainAdministrator(actor: PermissionActor): boolean {
 }
 
 export function hasValidOperationalAssignment(actor: PermissionActor): boolean {
-  if (actor.role !== Role.ADMIN && actor.role !== Role.DISPATCHER) return true;
+  if (actor.role === Role.USER) return true;
+  // Retired roles remain in the database for history, never for access.
+  if (actor.role !== Role.ADMIN && actor.role !== Role.DISPATCHER) return false;
   if (!actor.department) return false;
   if (actor.department === Department.MAIN) return isMainAdministrator(actor);
   return actor.isMainAdmin !== true;
@@ -49,15 +51,7 @@ export function permissionsForActor(actor: PermissionActor): PermissionName[] {
   if (actor.role === Role.USER) {
     return [Permission.IncidentCreateOwn, Permission.IncidentReadOwn, Permission.EvidenceReadOwn, ...common];
   }
-  if (actor.role === Role.RESPONDER) {
-    return [
-      Permission.IncidentReadAssigned,
-      Permission.EvidenceReadAssigned,
-      Permission.DispatchUpdateAssigned,
-      Permission.TaskUpdateAssigned,
-      ...common,
-    ];
-  }
+  if (actor.role !== Role.ADMIN && actor.role !== Role.DISPATCHER) return [];
   if (!hasValidOperationalAssignment(actor)) return common;
 
   const operational = [

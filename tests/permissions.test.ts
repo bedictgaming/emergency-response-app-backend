@@ -110,3 +110,10 @@ describe("server-derived RBAC permissions", () => {
     expect(status).toBe(403);
   });
 });
+it('retired and unknown roles have no permissions and cannot be created by role administration', () => {
+  for (const role of ['RESPONDER', 'UNKNOWN']) {
+    expect(permissionsForActor({ role, department: Department.FIRE })).toEqual([]);
+    expect(hasValidOperationalAssignment({ role, department: Department.FIRE })).toBe(false);
+    expect(updateUserRoleSchema.safeParse({ params: { id: '11111111-1111-4111-8111-111111111111' }, body: { role } }).success).toBe(false);
+  }
+});

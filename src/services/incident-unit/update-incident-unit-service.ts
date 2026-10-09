@@ -3,7 +3,7 @@ import { UpdateIncidentUnitInput } from "@/schema/incident-unit/update-incident-
 import { IncidentUnitStatus, UnitStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { isWorkflowConflict } from "@/lib/workflow-error";
 
 const incidentUnitRepository = new IncidentUnitRepository();
 
@@ -22,18 +22,11 @@ export const UpdateIncidentUnitService = async (
   actorRole?: string,
 ) => {
   try {
+    if (!["ADMIN", "DISPATCHER"].includes(actorRole ?? "")) return { code: 403, status: "error", message: "Operational role required" };
     const existing = await incidentUnitRepository.findById(id);
 
     if (!existing) {
       return { code: 404, status: "error", message: "Dispatch record not found" };
-    }
-    if (actorRole === "RESPONDER") {
-      const member = existing.unit.responders.some((responder) => responder.user.id === actorId);
-      if (!member || Object.keys(data).some((key) => key !== "status")) {
-        return { code: 403, status: "error", message: "Responders may only update status for their assigned unit" };
-      }
-    } else if (!["ADMIN", "DISPATCHER"].includes(actorRole ?? "")) {
-      return { code: 403, status: "error", message: "Operational role required" };
     }
 
     // Validate status transition if status is being modified
@@ -50,7 +43,6 @@ export const UpdateIncidentUnitService = async (
 
     const incidentUnit = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT unit_id FROM units WHERE unit_id = ${existing.unit.unitId}::uuid FOR UPDATE`;
-      if (actorRole === "RESPONDER" && !await tx.responder.findFirst({ where: { userId: actorId, unitId: existing.unit.unitId } })) throw new WorkflowConflict("Unit assignment changed. Refresh and retry.");
       const updated = await tx.incidentUnit.update({
         where: { incidentUnitId: id, status: existing.status },
         data: {

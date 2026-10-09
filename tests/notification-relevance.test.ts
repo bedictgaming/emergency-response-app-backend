@@ -55,6 +55,7 @@ it('rechecks task assignee/status and dispatch unit membership', async () => {
   mocks.user.mockResolvedValue({ role: 'RESPONDER', status: 'ACTIVE', responder: { status: 'AVAILABLE', unit: { unitType: 'Fire engine' } } });
   mocks.task.mockResolvedValue(null); mocks.dispatch.mockResolvedValue(null);
   expect(await notificationRelevant({ ...job(), eventType: 'TASK_CREATED', payload: { data: { incidentId: 'incident', taskId: 'task' } } }, 'staff')).toBe(false);
-  expect(mocks.task).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: { not: 'DONE' }, assignee: { userId: 'staff' } }) }));
+  expect(mocks.task).not.toHaveBeenCalled();
+  expect(mocks.incident).not.toHaveBeenCalled();
   expect(await notificationRelevant({ ...job(), eventType: 'UNIT_DISPATCHED', payload: { data: { incidentId: 'incident', dispatchId: 'dispatch' } } }, 'staff')).toBe(false);
 });

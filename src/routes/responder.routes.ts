@@ -1,50 +1,11 @@
-import { Router } from "express";
-import { ResponderController } from "@/controllers/responder.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { createResponderSchema, updateResponderSchema } from "@/schema/responder";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole } from "@/middlewares/rbac-middleware";
-import { Role } from "@/generated/prisma";
-import { requireMainAdmin } from "@/middlewares/rbac-middleware";
-import { requireResponderDepartment, requireTargetUnitDepartment } from "@/middlewares/operational-access-middleware";
+import { Router } from 'express';
+import { AuthMiddleware } from '@/middlewares/auth-middleware';
+import { permittedRole } from '@/middlewares/rbac-middleware';
+import { Role } from '@/generated/prisma';
 
-// Initialize
 const router = Router();
-const responderController = new ResponderController();
-const authMiddleware = new AuthMiddleware();
-
-// Authenticated Routes — view responder personnel
-router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), responderController.getAll);
-router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), requireResponderDepartment, responderController.getById);
-
-// Protected Routes — ADMIN only to link responder or delete
-router.post(
-  "/v1/",
-  authMiddleware.execute,
-  permittedRole([Role.ADMIN]),
-  validateSchema(createResponderSchema),
-  requireMainAdmin,
-  requireTargetUnitDepartment,
-  responderController.create
-);
-
-router.put(
-  "/v1/:id",
-  authMiddleware.execute,
-  permittedRole([Role.ADMIN]),
-  validateSchema(updateResponderSchema),
-  requireResponderDepartment,
-  requireTargetUnitDepartment,
-  responderController.update
-);
-
-router.delete(
-  "/v1/:id",
-  authMiddleware.execute,
-  permittedRole([Role.ADMIN]),
-  requireMainAdmin,
-  requireResponderDepartment,
-  responderController.delete
-);
-
+// Preserve historical personnel rows, but retire all old CRUD endpoints.
+router.use(new AuthMiddleware().execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), (_req, res) => {
+  res.status(410).json({ code: 410, status: 'error', message: 'Responder management has been retired. Units and dispatch remain available.' });
+});
 export default router;

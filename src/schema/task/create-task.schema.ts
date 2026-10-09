@@ -13,10 +13,7 @@ export const createTaskSchema = z.object({
         message: "priority must be one of: LOW, MEDIUM, HIGH",
       })
       .optional(),
-    assignedTo: z
-      .string()
-      .uuid("assignedTo must be a valid responder UUID")
-      .optional(),
+    assignedTo: z.null({ message: "Responder assignments have been retired" }).optional(),
     dueAt: z
       .string()
       .datetime({ message: "dueAt must be a valid ISO 8601 datetime" })

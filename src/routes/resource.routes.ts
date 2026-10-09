@@ -13,8 +13,8 @@ const resourceController = new ResourceController();
 const authMiddleware = new AuthMiddleware();
 
 // Authenticated Routes — view resources
-router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), resourceController.getAll);
-router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), requireResourceDepartment, resourceController.getById);
+router.get("/v1/", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), resourceController.getAll);
+router.get("/v1/:id", authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), requireResourceDepartment, resourceController.getById);
 
 // Protected Routes — ADMIN only (resource management)
 router.post(

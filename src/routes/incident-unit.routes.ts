@@ -15,13 +15,13 @@ const authMiddleware = new AuthMiddleware();
 router.use(authMiddleware.execute);
 
 // Authenticated Routes
-router.get("/v1/", permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), incidentUnitController.getAll);
-router.get("/v1/:id", permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]), requireIncidentUnitDepartment, incidentUnitController.getById);
+router.get("/v1/", permittedRole([Role.ADMIN, Role.DISPATCHER]), incidentUnitController.getAll);
+router.get("/v1/:id", permittedRole([Role.ADMIN, Role.DISPATCHER]), requireIncidentUnitDepartment, incidentUnitController.getById);
 
 // Update dispatch status/role
 router.put(
   "/v1/:id",
-  permittedRole([Role.ADMIN, Role.DISPATCHER, Role.RESPONDER]),
+  permittedRole([Role.ADMIN, Role.DISPATCHER]),
   requireIncidentUnitDepartment,
   validateSchema(updateIncidentUnitSchema),
   incidentUnitController.update

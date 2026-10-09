@@ -20,37 +20,14 @@ export const UpdateTaskService = async (
   requesterRole: string
 ) => {
   try {
+    if (requesterRole !== "ADMIN" && requesterRole !== "DISPATCHER") {
+      return { code: 403, status: "error", message: "Only administrators and dispatchers can update tasks" };
+    }
+    if (data.assignedTo != null) return { code: 400, status: "error", message: "Responder assignments have been retired" };
     const existing = await taskRepository.findById(id);
 
     if (!existing) {
       return { code: 404, status: "error", message: "Task not found" };
-    }
-
-    // Responders can only update status on tasks assigned to them
-    if (requesterRole !== "ADMIN" && requesterRole !== "DISPATCHER") {
-      if (requesterRole !== "RESPONDER") {
-        return { code: 403, status: "error", message: "Only operational staff can update tasks" };
-      }
-      const isAssignee = existing.assignee?.user?.id === requesterId;
-      if (!isAssignee) {
-        return {
-          code: 403,
-          status: "error",
-          message: "Forbidden: You can only update tasks assigned to you",
-        };
-      }
-      // Responders may only change status — not reassign or rename
-      const allowedFields = ["status"] as const;
-      const hasDisallowedFields = Object.keys(data).some(
-        (k) => !allowedFields.includes(k as typeof allowedFields[number])
-      );
-      if (hasDisallowedFields) {
-        return {
-          code: 403,
-          status: "error",
-          message: "Forbidden: Responders may only update task status",
-        };
-      }
     }
 
     // Validate status transition if status is being changed
@@ -61,18 +38,6 @@ export const UpdateTaskService = async (
           code: 400,
           status: "error",
           message: `Invalid status transition: cannot move from "${existing.status}" to "${data.status}". Allowed: ${allowedNext.join(", ") || "none"}`,
-        };
-      }
-    }
-
-    // Verify new responder if reassigning
-    if (data.assignedTo) {
-      const responder = await taskRepository.findResponderById(data.assignedTo);
-      if (!responder) {
-        return {
-          code: 404,
-          status: "error",
-          message: "Responder not found. Please provide a valid assignedTo UUID.",
         };
       }
     }
