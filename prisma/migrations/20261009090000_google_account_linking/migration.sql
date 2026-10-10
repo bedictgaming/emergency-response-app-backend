@@ -16,3 +16,4 @@ CREATE TABLE "GoogleLinkIntent" (
 CREATE UNIQUE INDEX "GoogleLinkIntent_stateHash_key" ON "GoogleLinkIntent"("stateHash");
 CREATE UNIQUE INDEX "GoogleLinkIntent_userId_key" ON "GoogleLinkIntent"("userId");
 CREATE INDEX "GoogleLinkIntent_expiresAt_idx" ON "GoogleLinkIntent"("expiresAt");
+
