@@ -72,7 +72,7 @@ export class AuthController {
   public login = async (req: Request, res: Response) => {
     const { email, password } = req.body ?? {};
     const result = await LoginCredentialsService(email, password);
-    
+
     if (result.code === 200 && result.data?.tokens) {
       this.setAuthCookies(res, result.data.tokens);
       return res.status(200).json({ code: 200, status: "success", message: result.message, data: { user: result.data.user } });
