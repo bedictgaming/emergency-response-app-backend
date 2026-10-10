@@ -51,7 +51,6 @@ it('public signup cannot grant verification or operational privilege', async () 
 });
 it.each([
   ['/resend-email-verification', 404], ['/verify-email', 410],
-  ['/google/link', 410], ['/google/unlink', 410],
 ] as const)('retires %s without capabilities, mail, database or cookie side effects', async (path, code) => {
   for (const method of ['get', 'post', 'put', 'delete'] as const) {
     const response = await request(app)[method](`/api/auth/v1${path}?token=synthetic`)
@@ -64,14 +63,19 @@ it.each([
   }
   for (const fn of Object.values(calls)) expect(fn).not.toHaveBeenCalled();
 });
-it('rejects retired linking callbacks even with matching ordinary state cookies', async () => {
+it('rejects obsolete linking callbacks without password/session/PKCE proof', async () => {
   const state = 'link.' + 'a'.repeat(43);
   for (const query of ['code=synthetic', 'error=synthetic']) {
     const response = await request(app).get(`/api/auth/v1/google/callback?state=${state}&${query}`)
-      .set('Cookie', `google_oauth_state=${state}; google_link_state=${state}`).expect(410);
-    expect(response.headers['set-cookie']).toBeUndefined();
-    expect(response.headers.location).toBeUndefined();
+      .set('Cookie', `google_oauth_state=${state}; google_link_state=${state}`).expect(302);
+    expect(response.headers.location).toMatch(/\/settings\?googleLink=expired$/);
+    expect(response.headers['set-cookie']).toEqual(expect.arrayContaining([expect.stringContaining('google_oauth_state=;'), expect.stringContaining('google_link_verifier=;')]));
   }
+  for (const fn of Object.values(calls)) expect(fn).not.toHaveBeenCalled();
+});
+it.each(['/google/link', '/google/unlink'])('requires authentication for restored POST %s', async path => {
+  await request(app).post('/api/auth/v1' + path).send({ accountId: '00000000-0000-4000-8000-000000000001', password: 'SyntheticOnly123' }).expect(401);
+  for (const method of ['get', 'put', 'delete'] as const) await request(app)[method]('/api/auth/v1' + path).expect(404);
   for (const fn of Object.values(calls)) expect(fn).not.toHaveBeenCalled();
 });
 it('preserves signup and credential login rejection', async () => {

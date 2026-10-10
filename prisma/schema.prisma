@@ -163,6 +163,8 @@ model User {
   // Auth relations
   tokens        Token[]
   oauthAccounts OAuthAccount[]
+  authIdentities AuthIdentity[]
+  googleLinkIntents GoogleLinkIntent[]
 
   // Emergency-response relations
   responder         Responder?
@@ -208,6 +210,39 @@ model OAuthAccount {
 // ============================================================
 // Reference Tables
 // ============================================================
+
+// Credential registry. Email is metadata, not an authorization key.
+// OAuthAccount remains a legacy archive; it is no longer used for authentication.
+model AuthIdentity {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  provider       String
+  providerUserId String   @map("provider_user_id")
+  email          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@map("auth_identities")
+}
+
+// One-time, password-confirmed intent bound to the initiating refresh session.
+model GoogleLinkIntent {
+  id                  String    @id @default(uuid())
+  stateHash           String    @unique
+  userId              String    @unique
+  sessionId           String
+  passwordFingerprint String
+  email               String
+  pkceChallenge       String
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
 
 model Location {
   locationId   String   @id @default(uuid()) @map("location_id") @db.Uuid

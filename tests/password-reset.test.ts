@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   lookup: vi.fn(), create: vi.fn(), findToken: vi.fn(), transaction: vi.fn(),
   mail: vi.fn(), hash: vi.fn(), lock: vi.fn(), claim: vi.fn(), update: vi.fn(),
+  identity: vi.fn(), intents: vi.fn(),
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: {
   user: { findUnique: mocks.lookup }, token: { create: mocks.create, findFirst: mocks.findToken },
@@ -18,7 +19,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.hash.mockResolvedValue('derived-hash');
   mocks.transaction.mockImplementation(callback => callback({
-    $queryRaw: mocks.lock, token: { updateMany: mocks.claim }, user: { update: mocks.update },
+    $queryRaw: mocks.lock, token: { updateMany: mocks.claim }, user: { update: mocks.update, findUnique: vi.fn(async () => ({ email: 'citizen@example.test' })) },
+    authIdentity: { upsert: mocks.identity }, googleLinkIntent: { deleteMany: mocks.intents },
   }));
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -68,6 +70,8 @@ it('locks the user, claims once, changes only the password and revokes all old s
   expect(mocks.lock.mock.invocationCallOrder[0]).toBeLessThan(mocks.claim.mock.invocationCallOrder[0]);
   expect(mocks.claim.mock.calls[0][0]).toMatchObject({ where: { id: 'reset', type: 'PASSWORD_RESET', consumedAt: null, revokedAt: null, expiresAt: { gt: expect.any(Date) } }, data: { consumedAt: expect.any(Date) } });
   expect(mocks.update).toHaveBeenCalledWith({ where: { id: 'synthetic' }, data: { password: 'derived-hash' } });
+  expect(mocks.identity).toHaveBeenCalledWith(expect.objectContaining({ create: { userId: 'synthetic', provider: 'password', providerUserId: 'synthetic', email: 'citizen@example.test' } }));
+  expect(mocks.intents).toHaveBeenCalledWith({ where: { userId: 'synthetic' } });
   expect(mocks.claim.mock.calls[1][0]).toEqual({ where: { userId: 'synthetic', revokedAt: null }, data: { revokedAt: expect.any(Date) } });
   expect(mocks.mail).not.toHaveBeenCalled();
 });

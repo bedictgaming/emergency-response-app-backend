@@ -19,6 +19,7 @@ export async function SignupUserService(name: string, email: string, password: s
       data: { user: created },
     };
   } catch (error) {
+    if ((error as { code?: string })?.code === "P2002") return { code: 409, status: "error", message: "Email already registered. Log In or use Forgot password." };
     if (error instanceof PasswordProcessingBusy) return { code: 503, status: "error", message: "Sign-in processing is busy. Please try again shortly." };
     console.error("Signup unavailable; no account or credential details logged");
     return { code: 500, status: "error", message: "Unable to create account" };

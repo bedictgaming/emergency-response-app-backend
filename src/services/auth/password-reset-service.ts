@@ -49,6 +49,10 @@ export async function ResetPasswordService(token: string, password: string) {
       });
       if (claim.count !== 1) return false;
       await tx.user.update({ where: { id: stored.userId }, data: { password: hashed } });
+      const account = await tx.user.findUnique({ where: { id: stored.userId }, select: { email: true } });
+      await tx.authIdentity.upsert({ where: { userId_provider: { userId: stored.userId, provider: "password" } },
+        create: { userId: stored.userId, provider: "password", providerUserId: stored.userId, email: account?.email }, update: { email: account?.email } });
+      await tx.googleLinkIntent.deleteMany({ where: { userId: stored.userId } });
       await tx.token.updateMany({ where: { userId: stored.userId, revokedAt: null }, data: { revokedAt: new Date() } });
       return true;
     });

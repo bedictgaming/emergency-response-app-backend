@@ -1,93 +1,65 @@
-import { Profile } from "passport-google-oauth20";
+import type { Profile } from "passport-google-oauth20";
 import { UserRepository } from "@/repositories/user.repository";
 import { OAuthAccountRepository } from "@/repositories/oauth-account.repository";
-import { TokenRepository } from "@/repositories/token.repository";
+import { prisma } from "@/lib/prisma";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
 import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
-import { z } from "zod";
+import { googleEmail, googleSubject } from "@/lib/google-identity";
+
+const passwordFirst = () => ({ code: 409, status: "error", errorCode: "oauth_link_password_required",
+  message: "Please log in with your password first, then link Google in Settings." });
+const safeAutoLink = (user: { role: string; emailVerified: Date | null; status: string }) =>
+  user.role === "USER" && user.status === "ACTIVE" && !!user.emailVerified;
 
 export async function GoogleOAuthService(profile: Profile) {
-  const userRepository = new UserRepository();
-  const oauthAccountRepository = new OAuthAccountRepository();
-  const tokenRepository = new TokenRepository();
-
   try {
-    const googleId = profile?.id;
-    if (profile?.provider !== "google" || typeof googleId !== "string" || !/^[a-zA-Z0-9_-]{1,255}$/.test(googleId)) {
-      return { code: 400, status: "error", message: "Invalid Google identity" };
-    }
-    const name = profile.displayName ?? null;
-
-    // 1. Check if we already have an OAuthAccount for this Google ID
-    const existingOAuth = await oauthAccountRepository.findByProvider("google", googleId);
-
+    const googleId = googleSubject(profile);
+    if (!googleId) return { code: 400, status: "error", message: "Invalid Google identity" };
+    const repository = new OAuthAccountRepository();
+    const existing = await repository.findByProvider("google", googleId);
+    const ownership = googleEmail(profile);
     let userId: string;
-
-    if (existingOAuth) {
-      // Returning Google user — use the linked userId directly
-      userId = existingOAuth.userId;
+    let autoLink = false;
+    if (existing) {
+      // Stable sub, not a changed email, resolves an established identity.
+      userId = existing.userId;
     } else {
-      const email = profile.emails?.[0]?.value?.trim().toLowerCase();
-      const claims = profile._json as { email?: unknown; email_verified?: unknown; hd?: unknown };
-      // Passport's OpenID profile comes from Google's authenticated userinfo
-      // response. Third-party email_verified alone is not current ownership.
-      const verifiedEmail = (profile.emails?.[0] as { verified?: unknown } | undefined)?.verified === true;
-      const hostedDomain = typeof claims?.hd === "string" ? claims.hd.trim().toLowerCase() : "";
-      const authoritative = email?.endsWith("@gmail.com") ||
-        (hostedDomain.length > 0 && email?.split("@")[1] === hostedDomain);
-      if (!email || !z.email().safeParse(email).success || !verifiedEmail || claims?.email_verified !== true ||
-          typeof claims.email !== "string" || claims.email.trim().toLowerCase() !== email || !authoritative) {
-        return { code: 403, status: "error", errorCode: "oauth_email_verification_required", message: "Use email registration or a verified Gmail or Google Workspace account" };
+      const matching = ownership.email ? await new UserRepository().findByEmail(ownership.email) : null;
+      if (matching && (!ownership.authoritative || !safeAutoLink(matching))) return passwordFirst();
+      if (!ownership.authoritative || !ownership.email) return { code: 403, status: "error", errorCode: "oauth_email_verification_required",
+        message: "Use email registration or a verified Gmail or Google Workspace account." };
+      if (matching) { userId = matching.id; autoLink = true; }
+      else userId = (await repository.createUserWithAccount({ providerAccountId: googleId, name: profile.displayName ?? null, email: ownership.email })).userId;
+    }
+
+    // Lock shared with unlink, reset and refresh: a stale pre-unlink lookup must
+    // never mint a fresh Google session after unlink commits.
+    const issued = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      const current = await tx.user.findUnique({ where: { id: userId } });
+      if (!current || current.status !== "ACTIVE" || !hasValidOperationalAssignment(current)) return null;
+      let binding = await tx.authIdentity.findUnique({ where: { provider_providerUserId: { provider: "google", providerUserId: googleId } } });
+      if (autoLink && !binding) {
+        if (!safeAutoLink(current) || current.email?.trim().toLowerCase() !== ownership.email) return null;
+        if (await tx.authIdentity.findUnique({ where: { userId_provider: { userId, provider: "google" } } })) return null;
+        binding = await tx.authIdentity.create({ data: { userId, provider: "google", providerUserId: googleId, email: ownership.email } });
+        await tx.auditLog.create({ data: { actorId: userId, action: "AUTH_GOOGLE_LINKED", entityType: "User", entityId: userId, metadata: { mode: "verified-citizen" } } });
+        await tx.token.updateMany({ where: { userId, type: "REFRESH", revokedAt: null }, data: { revokedAt: new Date() } });
       }
-      // Email equality never grants access to an existing account (including an
-      // admin), verifies it, or creates a provider link. Explicit authenticated
-      // linking would need a separate step-up flow; this endpoint is sign-in only.
-      if (await userRepository.findByEmail(email)) {
-        return { code: 409, status: "error", errorCode: "oauth_link_required", message: "Use your existing account's email and password" };
-      }
-      const created = await oauthAccountRepository.createUserWithAccount({ providerAccountId: googleId, name, email });
-      userId = created.userId;
-    }
-
-    // 2. Load user for role (needed to sign JWT)
-    const user = await userRepository.findById(userId);
-    if (!user) {
-      return { code: 500, status: "error", message: "User not found after Google OAuth" };
-    }
-    if (user.status !== "ACTIVE") {
-      return { code: 403, status: "error", message: "This account is not active" };
-    }
-    if (!hasValidOperationalAssignment(user)) {
-      return { code: 403, status: "error", message: "This operational account has no valid department assignment" };
-    }
-
-    // 3. Issue JWT pair
-    const refreshToken = signRefreshToken(userId, user.role, TokenExpiry.REFRESH_TOKEN_EXPIRES);
-
-    // 4. Persist refresh token for rotation tracking
-    const session = await tokenRepository.createRefreshToken({
-      userId,
-      token: refreshToken,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      if (binding?.userId !== userId) return null;
+      const refreshToken = signRefreshToken(userId, current.role, TokenExpiry.REFRESH_TOKEN_EXPIRES);
+      const session = await tx.token.create({ data: { userId, type: "REFRESH", token: refreshToken, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) } });
+      return { current, refreshToken, session };
     });
-    const accessToken = signAccessToken(userId, user.role, TokenExpiry.ACCESS_TOKEN_EXPIRES, session.id);
-
-    return {
-      code: 200,
-      status: "success",
-      message: "Google OAuth successful",
-      data: {
-        tokens: { accessToken, refreshToken },
-        user: withPermissions({ id: user.id, name: user.name, email: user.email, role: user.role, department: user.department, isMainAdmin: user.isMainAdmin }),
-      },
-    };
+    if (!issued) return { code: 403, status: "error", errorCode: "oauth_link_password_required", message: "Account or Google connection changed. Log in with your password and review Settings." };
+    const { current, refreshToken, session } = issued;
+    const accessToken = signAccessToken(userId, current.role, TokenExpiry.ACCESS_TOKEN_EXPIRES, session.id);
+    return { code: 200, status: "success", message: "Signed in with Google",
+      data: { tokens: { accessToken, refreshToken }, user: withPermissions({ id: current.id, name: current.name, email: current.email,
+        role: current.role, department: current.department, isMainAdmin: current.isMainAdmin }) } };
   } catch (error) {
-    // A concurrent sign-in must not fall back to linking by email. Nested writes
-    // roll back on either unique constraint; retry the complete OAuth flow.
-    if ((error as { code?: string })?.code === "P2002") {
-      return { code: 409, status: "error", message: "Please retry Google sign-in" };
-    }
-    console.error("GoogleOAuthService failed");
-    return { code: 500, status: "error", message: "Unable to process Google OAuth" };
+    if ((error as { code?: string })?.code === "P2002") return { code: 409, status: "error", message: "Your sign-in methods changed. Please retry Google sign-in." };
+    console.error("Google sign-in unavailable; no provider or account details logged");
+    return { code: 503, status: "error", message: "Google sign-in is temporarily unavailable. Please try again." };
   }
 }

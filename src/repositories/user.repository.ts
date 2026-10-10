@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { Department, Role, UserStatus } from "@/generated/prisma";
+import { randomUUID } from "node:crypto";
 
 interface UserFilters {
   role?: Role;
@@ -111,8 +112,11 @@ export class UserRepository {
     password?: string | null;
     emailVerified?: Date | null;
   }) {
+    const id = randomUUID();
     return await prisma.user.create({
-      data,
+      data: { ...data, id, ...(data.password ? { authIdentities: { create: {
+        provider: "password", providerUserId: id, email: data.email,
+      } } } : {}) },
       select: {
         id: true,
         name: true,

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
-import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+import { randomBytes, randomUUID, createCipheriv, createDecipheriv } from 'node:crypto';
 import pg from 'pg';
 
 const supplied = process.env.DISPOSABLE_DATABASE_URL;
@@ -41,6 +41,45 @@ try {
   const migrations = (await readdir(resolve('prisma/migrations'), { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name).sort();
   for (const migration of migrations) {
     if (migration === '20261005093000_alert_attention') await snapshot('before-alert-migration');
+    if (migration === '20261009090000_google_account_linking') await snapshot('before-link-intent-migration');
+    if (migration === '20261010090000_auth_identities') {
+      const a = randomUUID(), b = randomUUID(), legacy = randomUUID(), subject = randomUUID();
+      await client.query('INSERT INTO "User" (id,email,password,"updatedAt") VALUES ($1,$2,$3,now()),($4,$5,NULL,now())',
+        [a, ' SYNTHETIC-Backfill@gmail.com ', 'synthetic-hash-not-a-credential', b, 'synthetic-google@gmail.com']);
+      await client.query('INSERT INTO "OAuthAccount" (id,provider,"providerAccountId","userId") VALUES ($1,\'google\',$2,$3)', [legacy, subject, b]);
+      const sql = await readFile(resolve('prisma/migrations', migration, 'migration.sql'), 'utf8');
+      // Exercise the real migration's abort guards before the successful backfill.
+      // Every attempted DDL has a freshly authenticated synthetic snapshot.
+      for (const conflict of ['normalized-email', 'duplicate-provider', 'unknown-provider']) {
+        const conflictingUser = randomUUID(), conflictingAccount = randomUUID();
+        if (conflict === 'normalized-email') {
+          await client.query('INSERT INTO "User" (id,email,"updatedAt") VALUES ($1,$2,now())', [conflictingUser, 'synthetic-backfill@gmail.com']);
+        } else {
+          await client.query('INSERT INTO "OAuthAccount" (id,provider,"providerAccountId","userId") VALUES ($1,$2,$3,$4)',
+            [conflictingAccount, conflict === 'duplicate-provider' ? 'google' : 'synthetic-unsupported', randomUUID(), b]);
+        }
+        await snapshot(`before-identity-${conflict}-guard`);
+        let rejected = false;
+        try { await client.query(sql); }
+        catch (error) {
+          rejected = error.code === 'P0001' && error.message === (conflict === 'normalized-email'
+            ? 'Identity migration requires review: conflicting normalized emails'
+            : 'Identity migration requires review: legacy provider bindings');
+        }
+        finally { await client.query('ROLLBACK'); }
+        const unchanged = (await client.query('SELECT to_regclass(\'public.auth_identities\') AS registry, (SELECT email FROM "User" WHERE id=$1) AS email', [a])).rows[0];
+        if (!rejected || unchanged.registry !== null || unchanged.email !== ' SYNTHETIC-Backfill@gmail.com ') throw Error('IDENTITY_MIGRATION_ABORT_GUARD_FAILED');
+        if (conflict === 'normalized-email') await client.query('DELETE FROM "User" WHERE id=$1', [conflictingUser]);
+        else await client.query('DELETE FROM "OAuthAccount" WHERE id=$1', [conflictingAccount]);
+      }
+      await snapshot('before-identity-migration');
+      await client.query(sql);
+      const check = await client.query('SELECT (SELECT count(*) FROM auth_identities WHERE provider=\'password\' AND user_id=$1 AND provider_user_id=$1) AS password, (SELECT count(*) FROM auth_identities WHERE provider=\'google\' AND user_id=$2 AND provider_user_id=$3) AS google, (SELECT count(*) FROM "OAuthAccount" WHERE id=$4) AS legacy, (SELECT email FROM "User" WHERE id=$1) AS email', [a,b,subject,legacy]);
+      const row = check.rows[0];
+      if (Number(row.password)!==1 || Number(row.google)!==1 || Number(row.legacy)!==1 || row.email!=='synthetic-backfill@gmail.com') throw Error('IDENTITY_BACKFILL_FAILED');
+      await client.query('DELETE FROM "User" WHERE id=ANY($1::text[])', [[a,b]]);
+      continue;
+    }
     await client.query(await readFile(resolve('prisma/migrations', migration, 'migration.sql'), 'utf8'));
   }
   key.fill(0);
@@ -49,7 +88,7 @@ try {
   for (const name of ['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA']) if (process.env[name]) env[name] = process.env[name];
   Object.assign(env, {
     NODE_ENV: 'test', DATABASE_URL: supplied, DIRECT_URL: supplied, DISPOSABLE_DATABASE_URL: supplied,
-    CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1',
+    CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1', RUN_NATIVE_AUTH_IDENTITY_TESTS: '1',
     RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false',
     EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false',
     API_GATEWAY_SECRET: '', API_GATEWAY_AUDIENCE: '', TRUSTED_PROXY_CIDRS: '', RAILWAY_ENVIRONMENT_NAME: '',
@@ -60,7 +99,7 @@ try {
     SMTP_HOST: '', SMTP_USER: '', SMTP_PASSWORD: '', SMTP_FROM: '', DOTENV_CONFIG_QUIET: 'true',
   });
   const status = await new Promise((accept, reject) => {
-    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/alert-database.integration.test.ts', '--maxWorkers=1'], { env, stdio: 'inherit', windowsHide: true });
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/alert-database.integration.test.ts', 'tests/auth-identity-database.integration.test.ts', '--maxWorkers=1'], { env, stdio: 'inherit', windowsHide: true });
     child.on('error', () => reject(new Error('TEST_RUNNER_UNAVAILABLE'))); child.on('close', accept);
   });
   if (status !== 0) throw new Error('NATIVE_ALERT_TESTS_FAILED');

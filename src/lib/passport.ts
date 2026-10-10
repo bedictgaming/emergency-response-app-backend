@@ -2,8 +2,16 @@ import passport from "passport";
 import { Strategy as GoogleStrategy, Profile, VerifyCallback } from "passport-google-oauth20";
 import { ENV } from "@/config/env";
 
+// Linking uses a server-generated S256 challenge and a browser-bound HttpOnly
+// verifier. Ordinary sign-in retains its existing state-cookie implementation.
+class GoogleLinkStrategy extends GoogleStrategy {
+  tokenParams(options: { linkVerifier?: string }) {
+    return options.linkVerifier ? { code_verifier: options.linkVerifier } : {};
+  }
+}
+
 passport.use(
-  new GoogleStrategy(
+  new GoogleLinkStrategy(
     {
       clientID: ENV.GOOGLE_CLIENT_ID!,
       clientSecret: ENV.GOOGLE_CLIENT_SECRET!,

@@ -6,6 +6,7 @@ vi.mock('@/controllers/auth.controller', () => ({ AuthController: class {
   login = this.signup; verifyEmail = this.signup; refresh = this.signup;
   logout = this.signup; googleCallback = this.signup; me = this.signup;
   requestPasswordReset = this.signup; resetPassword = this.signup;
+  loginMethods = this.signup; linkGoogle = this.signup; unlinkGoogle = this.signup;
 } }));
 vi.mock('@/lib/passport', () => ({ default: { authenticate: () => (_: unknown, __: unknown, next: () => void) => next() } }));
 import router from '@/routes/auth.routes';

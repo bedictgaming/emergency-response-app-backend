@@ -4,9 +4,9 @@ export class OAuthAccountRepository {
   // Nested creation is atomic: a provider/email collision cannot leave an
   // orphan user. No existing user is connected and Prisma's USER default applies.
   async createUserWithAccount(data: { providerAccountId: string; name: string | null; email: string }) {
-    return prisma.oAuthAccount.create({
+    return prisma.authIdentity.create({
       data: {
-        provider: "google", providerAccountId: data.providerAccountId,
+        provider: "google", providerUserId: data.providerAccountId, email: data.email,
         user: { create: { name: data.name, email: data.email, emailVerified: new Date() } },
       },
       select: { userId: true },
@@ -14,14 +14,14 @@ export class OAuthAccountRepository {
   }
 
   async findByProvider(provider: string, providerAccountId: string) {
-    return prisma.oAuthAccount.findUnique({
+    return prisma.authIdentity.findUnique({
       where: {
-        provider_providerAccountId: { provider, providerAccountId },
+        provider_providerUserId: { provider, providerUserId: providerAccountId },
       },
     });
   }
 
   async create(data: { provider: string; providerAccountId: string; userId: string }) {
-    return prisma.oAuthAccount.create({ data });
+    return prisma.authIdentity.create({ data: { provider: data.provider, providerUserId: data.providerAccountId, userId: data.userId } });
   }
 }

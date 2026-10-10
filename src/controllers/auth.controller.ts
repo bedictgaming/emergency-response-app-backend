@@ -4,6 +4,12 @@ import { SignupUserService, LoginCredentialsService, RefreshTokenService, GetMeS
 import { TokenExpiry, toMilliseconds, verifyAccessToken, type JwtPayload } from "@/lib/jwt";
 import { ENV } from "@/config/env";
 import { prisma } from "@/lib/prisma";
+import { BeginGoogleLinkService, CompleteGoogleLinkService, GetLoginMethodsService, UnlinkGoogleService } from "@/services/auth/google-link-service";
+
+export const googleStateCookie = {
+  httpOnly: true, secure: ENV.NODE_ENV === "production", sameSite: "lax" as const,
+  maxAge: 5 * 60_000, path: "/api/auth/v1/google",
+};
 
 export class AuthController {
   // A scheduling hint only, never a credential or an authorization input.
@@ -106,16 +112,45 @@ export class AuthController {
     const result = await GoogleOAuthService(profile);
 
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    if (result.code === 200 && result.data?.tokens) {
+    if (result.code === 200 && "data" in result && result.data?.tokens) {
       this.setAuthCookies(res, result.data.tokens);
         // Authentication is carried by secure HttpOnly cookies. Never put an
         // access token in URLs, browser history, analytics, or server logs.
         return res.redirect(`${frontendUrl}/login?oauth=success`);
     }
 
-    const reason = result.errorCode === "oauth_link_required" || result.errorCode === "oauth_email_verification_required"
-      ? result.errorCode : "oauth_failed";
+    const errorCode = "errorCode" in result ? result.errorCode : undefined;
+    const reason = errorCode === "oauth_link_required" || errorCode === "oauth_link_password_required" || errorCode === "oauth_email_verification_required"
+      ? errorCode : "oauth_failed";
     return res.redirect(`${frontendUrl}/login?oauth=${reason}`);
+  };
+
+  public loginMethods = async (req: Request, res: Response) => {
+    const result = await GetLoginMethodsService(req.user as JwtPayload);
+    return res.status(result.code).json(result);
+  };
+
+  public linkGoogle = async (req: Request, res: Response) => {
+    if (req.body.accountId !== (req.user as JwtPayload).sub) return res.status(409).json({ code: 409, status: "error", message: "Your account changed. Reload Settings and try again." });
+    const result = await BeginGoogleLinkService(req.user as JwtPayload, req.body.password);
+    if ("data" in result && result.data && "state" in result && "verifier" in result) {
+      res.cookie("google_oauth_state", result.state, googleStateCookie);
+      res.cookie("google_link_verifier", result.verifier, googleStateCookie);
+      return res.status(200).json({ code: 200, status: "success", data: result.data });
+    }
+    return res.status(result.code).json(result);
+  };
+
+  public finishGoogleLink = async (req: Request, res: Response) => {
+    const result = await CompleteGoogleLinkService(res.locals.googleLinkActor, res.locals.googleLinkIntent, req.user as Profile);
+    const reason = result.code === 200 ? "linked" : result.code === 403 ? "email_mismatch" : result.code === 409 ? "changed" : "failed";
+    return res.redirect(`${ENV.FRONTEND_URL.replace(/\/+$/, "")}/settings?googleLink=${reason}`);
+  };
+
+  public unlinkGoogle = async (req: Request, res: Response) => {
+    if (req.body.accountId !== (req.user as JwtPayload).sub) return res.status(409).json({ code: 409, status: "error", message: "Your account changed. Reload Settings and try again." });
+    const result = await UnlinkGoogleService(req.user as JwtPayload, req.body.password);
+    return res.status(result.code).json(result);
   };
 
   // Get Current User Session

@@ -51,11 +51,11 @@ describe.runIf(run)('audit PostgreSQL acceptance', () => {
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
     expect(await prisma.user.count({ where: { email: { in: emails.slice(0, 2) } } })).toBe(1);
-    expect(await prisma.oAuthAccount.count({ where: { provider: 'google', providerAccountId: `audit-${testId}` } })).toBe(1);
+    expect(await prisma.authIdentity.count({ where: { provider: 'google', providerUserId: `audit-${testId}` } })).toBe(1);
   }, 30000);
   it('cannot link an existing password user through an email collision', async () => {
     await expect(new OAuthAccountRepository().createUserWithAccount({ providerAccountId: `collision-${testId}`, name: 'Synthetic audit', email: emails[5] })).rejects.toMatchObject({ code: 'P2002' });
-    expect(await prisma.oAuthAccount.count({ where: { providerAccountId: `collision-${testId}` } })).toBe(0);
+    expect(await prisma.authIdentity.count({ where: { providerUserId: `collision-${testId}` } })).toBe(0);
   }, 30000);
   it('serializes concurrent device registration and blocks transfer into a full account', async () => {
     await prisma.deviceToken.createMany({ data: Array.from({ length: 9 }, (_, index) => ({ userId: quotaId, token: subscription(`seed-${index}`), platform: 'web' })) });

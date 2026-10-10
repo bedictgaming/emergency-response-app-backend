@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/utils/password";
 import { Department, Role } from "@/generated/prisma";
+import { randomUUID } from "node:crypto";
 
 /** One-time bootstrap, never a recurring credential reset. */
 async function bootstrapMainAdministrator() {
@@ -18,8 +19,10 @@ async function bootstrapMainAdministrator() {
     if (existingMain > 0 || await tx.user.findUnique({ where: { email }, select: { id: true } })) {
       throw new Error("Administrator bootstrap refused: an account already exists; use the authorized account-management workflow");
     }
+    const id = randomUUID();
     await tx.user.create({
       data: {
+        id,
         name,
         email,
         password: await hashPassword(password),
@@ -27,6 +30,7 @@ async function bootstrapMainAdministrator() {
         department: Department.MAIN,
         isMainAdmin: true,
         emailVerified: new Date(),
+        authIdentities: { create: { provider: "password", providerUserId: id, email } },
       },
     });
   });
