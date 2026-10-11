@@ -27,7 +27,7 @@ function guard() {
 suite('native incident authority serialization', () => {
   beforeAll(async () => {
     guard();
-    expect((await prisma.$queryRaw<Array<{ name: string }>>`SELECT current_database() AS name`)[0].name).toBe('alert_disposable');
+    expect((await prisma.$queryRaw<Array<{ name: string }>>`SELECT current_database()::text AS name`)[0].name).toBe('alert_disposable');
     confirmedTarget = true;
     typeId = (await prisma.incidentType.create({ data: { typeName: `Fire synthetic authority ${randomUUID()}` } })).typeId;
     locationId = (await prisma.location.create({ data: { locationName: 'Synthetic authority fixture; no emergency' } })).locationId;
