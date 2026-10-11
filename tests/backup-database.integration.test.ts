@@ -20,7 +20,7 @@ const schema = `
     wall timestamp(6), short_wall timestamp(3), instant timestamptz(6), calendar date,
     clock time(6), zoned_clock timetz(6), duration interval,
     walls timestamp(6)[], instants timestamptz(6)[], calendars date[],
-    data jsonb, json_data json, text_array text[], binary bytea, number numeric(30,9), big bigint, floating double precision,
+    data jsonb, json_data json, text_array text[], "binary" bytea, number numeric(30,9), big bigint, floating double precision,
     flag boolean, nullable text
   );
   INSERT INTO backup_codec_parent VALUES ('synthetic-parent');
