@@ -51,7 +51,7 @@ it('links only after a browser-bound one-time claim, using actual code verifier'
   const response = await request(app).get(`/v1/google/callback?state=${state}&code=synthetic-code`).set('Cookie', cookies).expect(302);
   expect(response.headers.location).toMatch(/\/settings\?googleLink=linked$/);
   expect(mocks.claim).toHaveBeenCalledWith(actor, state, verifier);
-  expect(mocks.passport).toHaveBeenCalledWith('google', { session: false, linkVerifier: verifier }, expect.any(Function));
+  expect(mocks.passport).toHaveBeenCalledWith('google', expect.objectContaining({ session: false, linkVerifier: verifier, callbackURL: expect.stringMatching(/\/api\/auth\/v1\/google\/callback$/) }), expect.any(Function));
   expect(mocks.claim.mock.invocationCallOrder[0]).toBeLessThan(mocks.passport.mock.invocationCallOrder[0]);
   expect(mocks.google).not.toHaveBeenCalled();
   expect((response.headers['set-cookie'] as unknown as string[]).every(cookie => !/^(accessToken|refreshToken)=/.test(cookie))).toBe(true);

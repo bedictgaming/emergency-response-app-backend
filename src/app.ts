@@ -14,6 +14,7 @@ import { getHttpLogLevel } from '@/lib/http-log-policy';
 import { originGuard } from '@/middlewares/origin-guard';
 import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middlewares/api-gateway';
 import { createReadinessCheck } from '@/lib/readiness';
+import { trustedOrigins } from '@/lib/public-origin';
 
 const app = express();
 
@@ -84,7 +85,7 @@ app.use(originGuard);
 
 // --- Core Middleware ---
 app.use(cors({
-  origin: ENV.FRONTEND_URL,
+  origin: (origin, done) => done(null, !!origin && trustedOrigins.has(origin)),
   credentials: true,
   // Cache successful browser preflight checks to avoid an OPTIONS request
   // before every repeated API call.

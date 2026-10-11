@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
-import { ENV } from "@/config/env";
+import { trustedOrigins } from "@/lib/public-origin";
 
-const trustedOrigins = new Set([ENV.FRONTEND_URL, ENV.BACKEND_URL].map((url) => new URL(url).origin));
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /** CORS does not stop a cross-site HTML form from sending a cookie-authenticated POST. */

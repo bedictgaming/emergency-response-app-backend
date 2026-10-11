@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ lookup: vi.fn(), transaction: vi.fn(), lock: v
   upsert: vi.fn(), intent: vi.fn(), claim: vi.fn(), deleteIntent: vi.fn(), binding: vi.fn(), create: vi.fn(), remove: vi.fn(), revoke: vi.fn(), audit: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: mocks.lookup }, $transaction: mocks.transaction } }));
 vi.mock('@/utils/password', () => ({ verifyPassword: mocks.verify, PasswordProcessingBusy: class extends Error {} }));
-vi.mock('@/config/env', () => ({ ENV: { GOOGLE_CLIENT_ID: 'synthetic-client', BACKEND_URL: 'https://api.example.test' } }));
+vi.mock('@/config/env', () => ({ ENV: { GOOGLE_CLIENT_ID: 'synthetic-client', FRONTEND_URL: 'https://account.example.test', BACKEND_URL: 'https://api.example.test', ADDITIONAL_FRONTEND_ORIGINS: [] } }));
 import { BeginGoogleLinkService, ClaimGoogleLinkService, CompleteGoogleLinkService, GetLoginMethodsService, UnlinkGoogleService } from '@/services/auth/google-link-service';
 const actor = { sub: 'user', sessionId: 'session' };
 const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
@@ -28,6 +28,10 @@ beforeEach(() => {
     token: { updateMany: mocks.revoke }, auditLog: { create: mocks.audit } }));
 });
 describe('password-confirmed Google connection', () => {
+  it('rejects an untrusted callback origin before password proof or any database writes', async () => {
+    expect(await BeginGoogleLinkService(actor, 'private-password', 'https://evil.invalid')).toMatchObject({ code: 403 });
+    expect(mocks.lookup).not.toHaveBeenCalled(); noMutation();
+  });
   it('returns only safe own-method metadata, no credential or provider subject', async () => {
     mocks.current.mockResolvedValue({ ...user(), authIdentities: [passwordIdentity, googleIdentity] });
     const result = await GetLoginMethodsService(actor);

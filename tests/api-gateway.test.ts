@@ -11,11 +11,14 @@ const initial = 1790800000000;
 let serial = 0;
 function signed({ method = 'GET', path = '/api/check', ip = '192.0.2.10', time = initial,
   nonce = (++serial).toString(16).padStart(32, '0'), cookie = '', authorization = '', origin = '',
-  referer = '', site = '', key = secret, aud = audience } = {}) {
-  const payload = JSON.stringify(['er-api-gateway-v1', aud, String(time), nonce, method,
-    path, ip, cookie, authorization, origin, referer, site]);
+  referer = '', site = '', key = secret, aud = audience, publicOrigin = '' } = {}) {
+  const values = [publicOrigin ? 'er-api-gateway-v2' : 'er-api-gateway-v1', aud, String(time), nonce, method,
+    path, ip, cookie, authorization, origin, referer, site];
+  if (publicOrigin) values.push(publicOrigin);
+  const payload = JSON.stringify(values);
   return { 'x-er-gateway-ip': ip, 'x-er-gateway-time': String(time), 'x-er-gateway-nonce': nonce,
     'x-er-gateway-signature': createHmac('sha256', key).update(payload).digest('hex'),
+    ...(publicOrigin ? { 'x-er-gateway-origin': publicOrigin } : {}),
     ...(cookie ? { cookie } : {}), ...(authorization ? { authorization } : {}),
     ...(origin ? { origin } : {}), ...(referer ? { referer } : {}), ...(site ? { 'sec-fetch-site': site } : {}) };
 }
@@ -29,12 +32,28 @@ function harness({ required = true, limit = 100, maxNonces = 20000 } = {}) {
   const createGuard = createApiGatewayGuard({ required, secret, audience }, { now: () => clock, maxNonces });
   app.use('/api', rateLimit({ limit, windowMs: 60000, keyGenerator: clientIpRateLimitKey, legacyHeaders: false }));
   app.all('/api/check', (req, res) => res.json({ ip: req.ip, key: clientIpRateLimitKey(req),
-    gatewayHeaderRetained: Object.keys(req.headers).some(name => name.startsWith('x-er-gateway-')) }));
+    gatewayHeaderRetained: Object.keys(req.headers).some(name => name.startsWith('x-er-gateway-')), publicOrigin: res.locals.apiGatewayOrigin }));
   app.get('/healthz', (_req, res) => res.sendStatus(200));
   return { app, clock: (value: number) => { clock = value; } };
 }
 
 describe('authenticated API gateway boundary', () => {
+  it('authenticates v2 origin metadata and rejects tampering, malformed metadata and downgrade', async () => {
+    const { app } = harness();
+    const origin = 'https://cordova-emergency-response.site';
+    const accepted = await request(app).get('/api/check').set(signed({ publicOrigin: origin }));
+    expect(accepted.status).toBe(200); expect(accepted.body.publicOrigin).toBe(origin);
+    expect(accepted.body.gatewayHeaderRetained).toBe(false);
+    const proof = signed({ publicOrigin: origin });
+    expect((await request(app).get('/api/check').set({ ...proof, 'x-er-gateway-origin': 'https://evil.invalid' })).status).toBe(403);
+    const stripped = { ...proof }; delete stripped['x-er-gateway-origin'];
+    expect((await request(app).get('/api/check').set(stripped)).status).toBe(403);
+    for (const publicOrigin of [origin + '/path', 'https://user:password@example.test', 'not-an-origin'])
+      expect((await request(app).get('/api/check').set(signed({ publicOrigin }))).status).toBe(403);
+    expect((await request(app).get('/api/check').set({ ...signed(), 'x-er-gateway-origin': origin })).status).toBe(403);
+    const ignored = await request(harness({ required: false }).app).get('/api/check').set(signed({ publicOrigin: origin }));
+    expect(ignored.body.publicOrigin).toBeUndefined();
+  });
   it('fails configuration closed without a dedicated secret and valid audience', () => {
     expect(() => createApiGatewayGuard({ required: true, secret: '', audience })).toThrow();
     expect(() => createApiGatewayGuard({ required: true, secret, audience: '' })).toThrow();

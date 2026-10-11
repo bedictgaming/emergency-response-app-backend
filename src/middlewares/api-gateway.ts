@@ -26,13 +26,25 @@ export function createApiGatewayGuard({ required, secret, audience }: {
     const time = read('time');
     const nonce = read('nonce');
     const signature = read('signature');
+    const hasOrigin = req.headers[prefix + 'origin'] !== undefined;
+    const publicOrigin = read('origin');
+    let originValid = !hasOrigin;
+    if (hasOrigin) {
+      try {
+        const url = new URL(publicOrigin);
+        originValid = ['http:', 'https:'].includes(url.protocol) && url.origin === publicOrigin
+          && !url.username && !url.password;
+      } catch { /* Fail closed; never downgrade a v2 proof to v1. */ }
+    }
     const clock = now();
     const issued = Number(time);
-    const metadataValid = isIP(ip) && /^\d{13}$/.test(time) && /^[a-f0-9]{32}$/.test(nonce)
+    const metadataValid = originValid && isIP(ip) && /^\d{13}$/.test(time) && /^[a-f0-9]{32}$/.test(nonce)
       && /^[a-f0-9]{64}$/.test(signature) && clock - issued <= maxAgeMs && issued - clock <= futureSkewMs;
-    const payload = JSON.stringify(['er-api-gateway-v1', audience, time, nonce, req.method,
+    const values = [hasOrigin ? 'er-api-gateway-v2' : 'er-api-gateway-v1', audience, time, nonce, req.method,
       req.originalUrl, ip, req.get('cookie') || '', req.get('authorization') || '',
-      req.get('origin') || '', req.get('referer') || '', req.get('sec-fetch-site') || '']);
+      req.get('origin') || '', req.get('referer') || '', req.get('sec-fetch-site') || ''];
+    if (hasOrigin) values.push(publicOrigin);
+    const payload = JSON.stringify(values);
     const expected = createHmac('sha256', secret).update(payload).digest();
     if (!metadataValid || !timingSafeEqual(Buffer.from(signature, 'hex'), expected)) {
       return res.status(403).json({ code: 403, status: 'error', message: 'Verified API gateway required' });
@@ -48,6 +60,7 @@ export function createApiGatewayGuard({ required, secret, audience }: {
       return res.status(503).json({ code: 503, status: 'error', message: 'API gateway temporarily unavailable' });
     }
     used.set(nonce, issued + maxAgeMs);
+    if (hasOrigin) res.locals.apiGatewayOrigin = publicOrigin;
     // Express's proxy topology remains untrusted. Only authenticated metadata
     // supplies the single request IP used by quotas and existing audit callers.
     Object.defineProperty(req, 'ip', { value: ip, configurable: true });

@@ -7,6 +7,7 @@ import type { JwtPayload } from "@/lib/jwt";
 import { hasValidOperationalAssignment } from "@/lib/permissions";
 import { googleEmail, googleSubject } from "@/lib/google-identity";
 import { verifyPassword, PasswordProcessingBusy } from "@/utils/password";
+import { trustedOrigins } from "@/lib/public-origin";
 
 type Actor = Pick<JwtPayload, "sub" | "sessionId">;
 const digest = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
@@ -51,8 +52,9 @@ export async function GetLoginMethodsService(actor: Actor) {
   } catch { return failure(503, "Sign-in methods are temporarily unavailable. Please retry."); }
 }
 
-export async function BeginGoogleLinkService(actor: Actor, password: string) {
+export async function BeginGoogleLinkService(actor: Actor, password: string, appOrigin = new URL(ENV.BACKEND_URL).origin) {
   try {
+    if (!trustedOrigins.has(appOrigin)) return failure(403, "Google connection must start from an approved app address.");
     const proof = await passwordProof(actor, password);
     if (!proof) return failure(403, "Your current password was not confirmed. Try again or use Forgot password.");
     const state = `link.${crypto.randomBytes(32).toString("base64url")}`;
@@ -72,7 +74,7 @@ export async function BeginGoogleLinkService(actor: Actor, password: string) {
     });
     if (result.code !== 200) return result;
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    url.search = new URLSearchParams({ client_id: ENV.GOOGLE_CLIENT_ID!, redirect_uri: `${ENV.BACKEND_URL}/api/auth/v1/google/callback`,
+    url.search = new URLSearchParams({ client_id: ENV.GOOGLE_CLIENT_ID!, redirect_uri: `${appOrigin}/api/auth/v1/google/callback`,
       response_type: "code", scope: "openid profile email", state, prompt: "select_account", code_challenge: challenge(verifier), code_challenge_method: "S256" }).toString();
     // Only authorizationUrl goes to JSON. State + verifier go to HttpOnly cookies.
     return { code: 200, status: "success" as const, data: { authorizationUrl: url.toString() }, state, verifier };

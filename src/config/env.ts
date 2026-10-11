@@ -49,6 +49,7 @@ const raw = {
   JWT_SECRET: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'development-only-secret-change-me'),
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:8000',
+  ADDITIONAL_FRONTEND_ORIGINS: (process.env.ADDITIONAL_FRONTEND_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean),
   COOKIE_DOMAIN: process.env.COOKIE_DOMAIN || undefined,
   TRUSTED_PROXY_CIDRS: trustedProxyCidrs,
   API_GATEWAY_REQUIRED: gatewayRequired,

@@ -11,6 +11,7 @@ import { clientIpRateLimitKey } from "@/middlewares/api-gateway";
 import { googleLinkSchema } from "@/schema/auth/google-link.schema";
 import { ClaimGoogleLinkService } from "@/services/auth/google-link-service";
 import { verifyAccessToken } from "@/lib/jwt";
+import { googleCallbackUrl, publicAppOrigin } from "@/lib/public-origin";
 
 // Initialize
 const router = Router();
@@ -89,7 +90,8 @@ router.get("/v1/google", googleOAuthLimiter, (req, res, next) => {
   const state = crypto.randomBytes(32).toString("base64url");
   res.cookie("google_oauth_state", state, oauthCookie);
   res.clearCookie("google_link_verifier", { ...googleStateCookie, maxAge: undefined });
-  return passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
+  const options = { scope: ["profile", "email"], state, callbackURL: googleCallbackUrl(res) };
+  return passport.authenticate("google", options)(req, res, next);
 });
 router.get("/v1/google/callback", googleOAuthLimiter, async (req, res, next) => {
   const expected = req.cookies?.google_oauth_state as string | undefined;
@@ -101,7 +103,7 @@ router.get("/v1/google/callback", googleOAuthLimiter, async (req, res, next) => 
     && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received)));
   if (!valid) return res.status(400).json({ code: 400, status: "error", message: "Invalid or expired Google sign-in state" });
   if (received!.startsWith("link.")) {
-    const destination = `${ENV.FRONTEND_URL.replace(/\/+$/, "")}/settings?googleLink=`;
+    const destination = `${publicAppOrigin(res)}/settings?googleLink=`;
     const actor = typeof req.cookies?.accessToken === "string" ? verifyAccessToken(req.cookies.accessToken) : null;
     if (!actor || typeof verifier !== "string") return res.redirect(destination + "expired");
     try {
@@ -113,7 +115,7 @@ router.get("/v1/google/callback", googleOAuthLimiter, async (req, res, next) => 
       res.locals.googleLinkIntent = intent;
       // Never fall through to ordinary login. The verifier is supplied only
       // after cookie, session, database claim and S256 checks all pass.
-      const options = { session: false, linkVerifier: verifier };
+      const options = { session: false, linkVerifier: verifier, callbackURL: googleCallbackUrl(res) };
       return passport.authenticate("google", options, (error: unknown, profile: unknown) => {
         if (error || !profile) return res.redirect(destination + "failed");
         req.user = profile as Express.User;
@@ -121,7 +123,8 @@ router.get("/v1/google/callback", googleOAuthLimiter, async (req, res, next) => 
       })(req, res, next);
     } catch { return res.redirect(destination + "failed"); }
   }
-  return passport.authenticate("google", { session: false })(req, res, next);
+  const options = { session: false, callbackURL: googleCallbackUrl(res) };
+  return passport.authenticate("google", options)(req, res, next);
 }, authController.googleCallback);
 
 // Session Verification

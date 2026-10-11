@@ -35,6 +35,6 @@ describe("Google OAuth state", () => {
     const state = stateCookie.split("=")[1];
     authenticate.mockClear();
     await request(app).get(`/api/auth/v1/google/callback?state=${encodeURIComponent(state)}`).set("Cookie", stateCookie).expect(204);
-    expect(authenticate).toHaveBeenCalledWith("google", { session: false });
+    expect(authenticate).toHaveBeenCalledWith("google", expect.objectContaining({ session: false, callbackURL: expect.stringMatching(/\/api\/auth\/v1\/google\/callback$/) }));
   });
 });

@@ -5,6 +5,7 @@ import { TokenExpiry, toMilliseconds, verifyAccessToken, type JwtPayload } from 
 import { ENV } from "@/config/env";
 import { prisma } from "@/lib/prisma";
 import { BeginGoogleLinkService, CompleteGoogleLinkService, GetLoginMethodsService, UnlinkGoogleService } from "@/services/auth/google-link-service";
+import { publicAppOrigin, publicApiOrigin } from "@/lib/public-origin";
 
 export const googleStateCookie = {
   httpOnly: true, secure: ENV.NODE_ENV === "production", sameSite: "lax" as const,
@@ -111,7 +112,7 @@ export class AuthController {
     const profile = req.user as Profile;
     const result = await GoogleOAuthService(profile);
 
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const frontendUrl = publicAppOrigin(res);
     if (result.code === 200 && "data" in result && result.data?.tokens) {
       this.setAuthCookies(res, result.data.tokens);
         // Authentication is carried by secure HttpOnly cookies. Never put an
@@ -132,7 +133,7 @@ export class AuthController {
 
   public linkGoogle = async (req: Request, res: Response) => {
     if (req.body.accountId !== (req.user as JwtPayload).sub) return res.status(409).json({ code: 409, status: "error", message: "Your account changed. Reload Settings and try again." });
-    const result = await BeginGoogleLinkService(req.user as JwtPayload, req.body.password);
+    const result = await BeginGoogleLinkService(req.user as JwtPayload, req.body.password, publicApiOrigin(res));
     if ("data" in result && result.data && "state" in result && "verifier" in result) {
       res.cookie("google_oauth_state", result.state, googleStateCookie);
       res.cookie("google_link_verifier", result.verifier, googleStateCookie);
@@ -144,7 +145,7 @@ export class AuthController {
   public finishGoogleLink = async (req: Request, res: Response) => {
     const result = await CompleteGoogleLinkService(res.locals.googleLinkActor, res.locals.googleLinkIntent, req.user as Profile);
     const reason = result.code === 200 ? "linked" : result.code === 403 ? "email_mismatch" : result.code === 409 ? "changed" : "failed";
-    return res.redirect(`${ENV.FRONTEND_URL.replace(/\/+$/, "")}/settings?googleLink=${reason}`);
+    return res.redirect(`${publicAppOrigin(res)}/settings?googleLink=${reason}`);
   };
 
   public unlinkGoogle = async (req: Request, res: Response) => {
