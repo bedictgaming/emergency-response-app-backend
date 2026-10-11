@@ -436,7 +436,16 @@ suite("disposable PostgreSQL incident delivery", () => {
     const deletion = { reason: "Synthetic confirmed false report cleanup", confirmation: "DELETE" };
     expect((await jsonRequest(path, { method: "DELETE", cookie: fire.cookie, body: deletion })).response.status).toBe(403);
     expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: deletion })).response.status).toBe(409);
-    for (const status of ["RESOLVED", "CLOSED"]) expect((await jsonRequest(path, { method: "PUT", cookie: main.cookie, body: { status } })).response.status).toBe(200);
+    expect((await jsonRequest(path, { method: "PUT", cookie: main.cookie, body: { status: "RESOLVED" } })).response.status).toBe(403);
+    expect((await jsonRequest(`${path}/services/FIRE`, { method: "PATCH", cookie: main.cookie, body: { status: "RESOLVED" } })).response.status).toBe(403);
+    expect((await jsonRequest(`${path}/services/MEDICAL`, { method: "PATCH", cookie: fire.cookie, body: { status: "RESOLVED" } })).response.status).toBe(403);
+    expect((await jsonRequest(`${path}/services/FIRE`, { method: "PATCH", cookie: fire.cookie, body: { status: "RESOLVED" } })).response.status).toBe(200);
+    expect((await prisma.incident.findUniqueOrThrow({ where: { incidentId: incident.incidentId } })).status).toBe("RESPONDING");
+    expect((await jsonRequest(path, { method: "PUT", cookie: main.cookie, body: { status: "CLOSED" } })).response.status).toBe(400);
+    expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: deletion })).response.status).toBe(409);
+    expect((await jsonRequest(`${path}/services/MEDICAL`, { method: "PATCH", cookie: medical.cookie, body: { status: "RESOLVED" } })).response.status).toBe(200);
+    expect((await prisma.incident.findUniqueOrThrow({ where: { incidentId: incident.incidentId } })).status).toBe("RESOLVED");
+    expect((await jsonRequest(path, { method: "PUT", cookie: main.cookie, body: { status: "CLOSED" } })).response.status).toBe(200);
     expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: { ...deletion, confirmation: "delete" } })).response.status).toBe(400);
     expect((await jsonRequest(path, { method: "DELETE", cookie: main.cookie, body: deletion })).response.status).toBe(200);
     expect(await prisma.incident.count({ where: { incidentId: incident.incidentId } })).toBe(0);

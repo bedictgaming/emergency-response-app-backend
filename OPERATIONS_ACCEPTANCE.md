@@ -26,6 +26,8 @@ npx tsx scripts/verify-encrypted-backup.ts <exact-backup.json.enc> --max-age-hou
 
 This validates AES-GCM authentication, JSON/table structure and backup age without printing private rows. Without the age flag it validates an historical file but does not demonstrate daily freshness. A metadata timestamp alone is insufficient. Confirm a restore into an explicitly disposable database and reconcile table/report counts; do not restore into production. Keep keys and decrypted contents out of Git, logs and support tickets. No automated daily job or off-site backup is created by this change.
 
+The local v2 codec candidate preserves PostgreSQL text/types/precision; encrypted v1 files remain inspectable but are refused for automatic restore because encoder timezone and precision provenance are absent. Set CONFIRM_RESTORE_DATABASE to the exact disposable RESTORE_DATABASE_URL database name. Independently verify target isolation and match all public column types before restoration. See BACKUP_CODEC_REPAIR.md. Synthetic cross-timezone/native passes do not certify an old production snapshot or authorize changing scheduled-runner source pins.
+
 ## Real delivery acceptance (separate authorization required)
 
 ### HTTPS account email setup
