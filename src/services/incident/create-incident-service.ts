@@ -21,7 +21,7 @@ import { incidentNotificationAudience } from '@/lib/incident-notification-audien
 import { protectIncidentEvidence } from "@/lib/evidence";
 import { resolveBarangayFromCoordinates } from "@/lib/barangay-boundaries";
 import { departmentService } from "@/lib/department-access";
-import { isMainAdministrator } from "@/lib/permissions";
+import { hasValidOperationalAssignment, isMainAdministrator } from "@/lib/permissions";
 
 const incidentRepository = new IncidentRepository();
 
@@ -30,6 +30,8 @@ class DuplicateActiveIncidentError extends WorkflowConflict {
     super("An emergency of this type has already been reported near this location.");
   }
 }
+
+class ReporterAccessWithdrawnError extends Error {}
 
 const CORDOVA_BARANGAYS = [
   "Alegria",
@@ -269,6 +271,22 @@ export const CreateIncidentService = async (
       let approvedDuplicateOverride = false;
       // Preserve reporter serialization for evidence checks; there is no daily quota.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${reportedBy} FOR UPDATE`;
+      // Account administration takes this same row lock. Authorization must be
+      // linearized here, not at the earlier middleware/provider/preflight read.
+      const currentReporter = await tx.user.findUnique({
+        where: { id: reportedBy },
+        select: { role: true, status: true, department: true, isMainAdmin: true },
+      });
+      if (!currentReporter || currentReporter.status !== "ACTIVE" || !hasValidOperationalAssignment(currentReporter)) {
+        throw new ReporterAccessWithdrawnError("Your account no longer has access to report. Log in again or contact the administrator.");
+      }
+      if (currentReporter.role !== reporter.role
+        || (currentReporter.department ?? null) !== (reporter.department ?? null)
+        || Boolean(currentReporter.isMainAdmin) !== Boolean(reporter.isMainAdmin)) {
+        // Reject rather than reinterpret a staff request as a citizen request:
+        // its proof, location, department and override checks used the old role.
+        throw new WorkflowConflict("Your account permissions changed while reporting. Refresh and submit again using your current access.");
+      }
       if (verifiedProof?.phash) {
         const reporterProofKey = `${reportedBy}:${verifiedProof.phash}`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${reporterProofKey}, 0))`;
@@ -382,6 +400,9 @@ export const CreateIncidentService = async (
       data: { incident: protectIncidentEvidence(incident) },
     };
   } catch (error) {
+    if (error instanceof ReporterAccessWithdrawnError) {
+      return { code: 403, status: "error", message: error.message };
+    }
     if (error instanceof DuplicateActiveIncidentError) {
       const distanceMeters = Math.round(error.existingIncident.distanceMeters);
       await prisma.auditLog.create({

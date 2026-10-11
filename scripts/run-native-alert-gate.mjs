@@ -88,7 +88,7 @@ try {
   for (const name of ['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA']) if (process.env[name]) env[name] = process.env[name];
   Object.assign(env, {
     NODE_ENV: 'test', DATABASE_URL: supplied, DIRECT_URL: supplied, DISPOSABLE_DATABASE_URL: supplied,
-    CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1', RUN_NATIVE_AUTH_IDENTITY_TESTS: '1',
+    CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1', RUN_NATIVE_AUTH_IDENTITY_TESTS: '1', RUN_NATIVE_INCIDENT_AUTHORITY_TESTS: '1',
     RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false',
     EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false',
     API_GATEWAY_SECRET: '', API_GATEWAY_AUDIENCE: '', TRUSTED_PROXY_CIDRS: '', RAILWAY_ENVIRONMENT_NAME: '',
@@ -99,7 +99,7 @@ try {
     SMTP_HOST: '', SMTP_USER: '', SMTP_PASSWORD: '', SMTP_FROM: '', DOTENV_CONFIG_QUIET: 'true',
   });
   const status = await new Promise((accept, reject) => {
-    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/alert-database.integration.test.ts', 'tests/auth-identity-database.integration.test.ts', '--maxWorkers=1'], { env, stdio: 'inherit', windowsHide: true });
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/alert-database.integration.test.ts', 'tests/auth-identity-database.integration.test.ts', 'tests/incident-authority-database.integration.test.ts', '--maxWorkers=1'], { env, stdio: 'inherit', windowsHide: true });
     child.on('error', () => reject(new Error('TEST_RUNNER_UNAVAILABLE'))); child.on('close', accept);
   });
   if (status !== 0) throw new Error('NATIVE_ALERT_TESTS_FAILED');

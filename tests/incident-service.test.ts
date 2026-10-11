@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findUser: vi.fn(),
+  findLockedUser: vi.fn(),
   countIncidents: vi.fn(),
   findIncident: vi.fn(),
   findIncidentType: vi.fn(),
@@ -66,6 +67,10 @@ import { VerifyIncidentService } from "@/services/incident/verify-incident-servi
 describe("incident workflow services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.findLockedUser.mockImplementation(async () => {
+      const user = await mocks.findUser();
+      return user ? { status: 'ACTIVE', department: null, isMainAdmin: false, ...user } : null;
+    });
     mocks.countIncidents.mockResolvedValue(0);
     mocks.findAttachment.mockResolvedValue(null);
     mocks.findAttachmentByPublicId.mockResolvedValue(null);
@@ -156,7 +161,7 @@ describe("incident workflow services", () => {
       $queryRaw: mocks.queryRaw,
       incident: { findFirst: vi.fn().mockResolvedValue(null), create: mocks.createIncident },
       responder: { findMany: mocks.findResponders },
-      user: { findMany: mocks.findStaff },
+      user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -252,7 +257,7 @@ describe("incident workflow services", () => {
         create: mocks.createIncident,
       },
       responder: { findMany: mocks.findResponders },
-      user: { findMany: mocks.findStaff },
+      user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -321,7 +326,7 @@ describe("incident workflow services", () => {
         create: mocks.createIncident,
       },
       responder: { findMany: mocks.findResponders },
-      user: { findMany: mocks.findStaff },
+      user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
@@ -375,7 +380,7 @@ describe("incident workflow services", () => {
       $executeRaw: mocks.executeRaw,
       incident: { findMany: mocks.findNearbyIncidents, create: mocks.createIncident },
       responder: { findMany: mocks.findResponders },
-      user: { findMany: mocks.findStaff },
+      user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
     const request = {
@@ -435,7 +440,7 @@ describe("incident workflow services", () => {
         create: mocks.createIncident,
       },
       responder: { findMany: mocks.findResponders },
-      user: { findMany: mocks.findStaff },
+      user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
       auditLog: { create: mocks.createAudit },
     }));
 
