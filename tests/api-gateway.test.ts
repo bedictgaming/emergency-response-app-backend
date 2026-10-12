@@ -4,6 +4,7 @@ import request from 'supertest';
 import rateLimit from 'express-rate-limit';
 import { createHmac } from 'node:crypto';
 import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middlewares/api-gateway';
+import { isApiPath } from '@/lib/api-path';
 
 const secret = 'gateway-unit-test-secret-not-a-credential';
 const audience = 'emergency-response-staging-v1';
@@ -27,7 +28,7 @@ function harness({ required = true, limit = 100, maxNonces = 20000 } = {}) {
   const app = express();
   app.set('trust proxy', false);
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-  app.use((req, res, next) => req.path.startsWith('/api/')
+  app.use((req, res, next) => isApiPath(req.path)
     ? createGuard(req, res, next) : next());
   const createGuard = createApiGatewayGuard({ required, secret, audience }, { now: () => clock, maxNonces });
   app.use('/api', rateLimit({ limit, windowMs: 60000, keyGenerator: clientIpRateLimitKey, legacyHeaders: false }));
@@ -38,6 +39,21 @@ function harness({ required = true, limit = 100, maxNonces = 20000 } = {}) {
 }
 
 describe('authenticated API gateway boundary', () => {
+  it.each(['er-api-gateway-v1', 'er-api-gateway-v2'])('retains exact mixed-case URL binding and replay checks for %s', async (version) => {
+    const { app } = harness();
+    const path = '/ApI/ChEcK/?value=a%2Fb';
+    const publicOrigin = version === 'er-api-gateway-v2' ? 'https://cordova-emergency-response.site' : '';
+    const proof = signed({ path, publicOrigin });
+    const accepted = await request(app).get(path).set(proof);
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.ip).toBe('192.0.2.10');
+    expect(accepted.body.gatewayHeaderRetained).toBe(false);
+    expect((await request(app).get(path).set(proof)).status).toBe(403);
+    expect((await request(app).get(path).set(signed({ path: path.toLowerCase(), publicOrigin }))).status).toBe(403);
+    expect((await request(app).get(path).set(signed({ path: '/ApI/ChEcK/?value=a/b', publicOrigin }))).status).toBe(403);
+    expect((await request(app).post(path).set(signed({ path, publicOrigin }))).status).toBe(403);
+  });
+
   it('authenticates v2 origin metadata and rejects tampering, malformed metadata and downgrade', async () => {
     const { app } = harness();
     const origin = 'https://cordova-emergency-response.site';

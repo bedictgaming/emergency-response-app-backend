@@ -15,6 +15,7 @@ import { originGuard } from '@/middlewares/origin-guard';
 import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middlewares/api-gateway';
 import { createReadinessCheck } from '@/lib/readiness';
 import { trustedOrigins } from '@/lib/public-origin';
+import { isApiPath } from '@/lib/api-path';
 
 const app = express();
 
@@ -79,7 +80,7 @@ app.use('/api', (_req, res, next) => {
 // Root-mounted to sign/verify the original API path, including query and trailing slash.
 const gatewayGuard = createApiGatewayGuard({ required: ENV.API_GATEWAY_REQUIRED,
   secret: ENV.API_GATEWAY_SECRET, audience: ENV.API_GATEWAY_AUDIENCE });
-app.use((req, res, next) => (req.path === '/api' || req.path.startsWith('/api/'))
+app.use((req, res, next) => isApiPath(req.path)
   ? gatewayGuard(req, res, next) : next());
 app.use(originGuard);
 

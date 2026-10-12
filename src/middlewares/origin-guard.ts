@@ -1,11 +1,12 @@
 import type { Request, Response, NextFunction } from "express";
 import { trustedOrigins } from "@/lib/public-origin";
+import { isApiPath } from "@/lib/api-path";
 
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /** CORS does not stop a cross-site HTML form from sending a cookie-authenticated POST. */
 export function originGuard(req: Request, res: Response, next: NextFunction) {
-  if (safeMethods.has(req.method) || !req.path.startsWith("/api/")) return next();
+  if (safeMethods.has(req.method) || !isApiPath(req.path)) return next();
   const origin = req.get("origin");
   const referer = req.get("referer");
   let claimedOrigin = origin;
