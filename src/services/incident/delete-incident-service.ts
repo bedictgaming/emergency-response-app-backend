@@ -6,6 +6,7 @@ import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
 import type { JwtPayload } from "@/lib/jwt";
 import { isMainAdministrator } from "@/lib/permissions";
 import { publishEmergencyEvent } from "@/lib/events";
+import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 
 const incidentRepository = new IncidentRepository();
 export const DeleteIncidentService = async (id: string, actor: JwtPayload, input: { reason: string; confirmation: string }) => {
@@ -22,6 +23,8 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
     }
 
     await prisma.$transaction(async (tx) => {
+      const fresh = await lockOperationalActor(tx, actor);
+      if (!isMainAdministrator(fresh)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
       const current = await tx.incident.findUnique({
         where: { incidentId: id },
@@ -54,6 +57,7 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
     publishEmergencyEvent({ type: "incident.updated", entityId: id });
     return { code: 200, status: "success", message: "Incident deleted successfully" };
   } catch (error) {
+    if (error instanceof OperationalAuthorizationError) return { code: error.code, status: 'error', message: error.message };
     if (isWorkflowConflict(error)) {
       return { code: 409, status: "error", message: error instanceof Error ? error.message : "Incident changed concurrently" };
     }

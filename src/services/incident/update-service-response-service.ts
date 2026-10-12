@@ -6,6 +6,7 @@ import { publishEmergencyEvent } from "@/lib/events";
 import { isMainAdministrator } from "@/lib/permissions";
 import { enqueueNotification } from '@/lib/jobs';
 import { incidentNotificationAudience } from '@/lib/incident-notification-audience';
+import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 
 export async function UpdateServiceResponseService(incidentId: string, service: ResponseService, status: ServiceResponseStatus, actor: JwtPayload) {
   if (!["ADMIN", "DISPATCHER"].includes(actor.role)) return { code: 403, status: "error", message: "Operational role required" };
@@ -13,6 +14,9 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
   if (!isMainAdministrator(actor) && departmentService(actor.department) !== service) return { code: 403, status: "error", message: "You may only update your own department response" };
   try {
     const result = await prisma.$transaction(async tx => {
+      const fresh = await lockOperationalActor(tx, actor);
+      if ((isMainAdministrator(fresh) && status === 'RESOLVED')
+          || (!isMainAdministrator(fresh) && departmentService(fresh.department) !== service)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
       const incident = await tx.incident.findUnique({ where: { incidentId }, include: { serviceResponses: true } });
       if (!incident) return null;
@@ -41,6 +45,7 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
     publishEmergencyEvent({ type: "incident.updated", entityId: incidentId });
     return { code: 200, status: "success", message: "Department response updated", data: { serviceResponse: result } };
   } catch (error) {
+    if (error instanceof OperationalAuthorizationError) return { code: error.code, status: 'error', message: error.message };
     console.error("UpdateServiceResponseService Error", error);
     return { code: 409, status: "error", message: "The response changed concurrently. Refresh and retry." };
   }

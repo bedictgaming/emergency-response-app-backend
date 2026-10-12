@@ -1,6 +1,7 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { protectIncidentEvidence } from "@/lib/evidence";
+import { verifiedAnalyticsEligibility } from '@/lib/verified-analytics';
 
 const incidentRepository = new IncidentRepository();
 
@@ -40,7 +41,7 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
     // Intersect with authorization; keep the review list and its totals intact.
     const verifiedFilters = {
       ...filters,
-      scope: { AND: [filters?.scope ?? {}, { verificationStatus: "VERIFIED" as const }] },
+      scope: { AND: [filters?.scope ?? {}, verifiedAnalyticsEligibility] },
     };
     const includeVerifiedSummary = filters?.includeTotal !== false
       && filters?.includeVerifiedSummary && !filters?.responseService;

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { IncidentStatus, Prisma, VerificationStatus } from "@/generated/prisma";
+import { IncidentStatus, Prisma } from "@/generated/prisma";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
+import { verifiedAnalyticsEligibility } from '@/lib/verified-analytics';
 
 export interface IncidentsByBarangayFilters {
   from?: Date;
@@ -34,7 +35,7 @@ export class AnalyticsRepository {
       prisma.incident.groupBy({
         by: ["barangayId", "status"],
         where: {
-          verificationStatus: VerificationStatus.VERIFIED,
+          ...verifiedAnalyticsEligibility,
           AND: [filters?.scope ?? {}],
           ...((filters?.from || filters?.to) && {
             reportedAt: { ...(filters?.from && { gte: filters.from }), ...(filters?.to && { lte: filters.to }) },
@@ -99,7 +100,7 @@ export class AnalyticsRepository {
       prisma.incident.groupBy({
         by: ["typeId"],
         where: {
-          verificationStatus: VerificationStatus.VERIFIED,
+          ...verifiedAnalyticsEligibility,
           AND: [filters?.scope ?? {}],
           ...((filters?.from || filters?.to) && {
             reportedAt: { ...(filters?.from && { gte: filters.from }), ...(filters?.to && { lte: filters.to }) },
@@ -154,7 +155,7 @@ export class AnalyticsRepository {
     const { start: startOfMonth, end: startOfNextMonth } = getManilaMonthRange(targetMonth, targetYear);
 
     const commonWhere: Prisma.IncidentWhereInput = {
-      verificationStatus: VerificationStatus.VERIFIED,
+      ...verifiedAnalyticsEligibility,
       AND: [filters?.scope ?? {}],
       ...(filters?.barangayId && { barangayId: filters.barangayId }),
     };

@@ -12,6 +12,10 @@ export const reviewIncidentFlagSchema = z.object({
 export const listReviewFlagsSchema = z.object({
   query: z.object({ page: z.coerce.number().int().positive().optional() }),
 });
+export const correctIncidentFlagSchema = z.object({
+  params: z.object({ id: z.string().uuid(), flagId: z.string().uuid() }),
+  body: z.object({ reviewNotes: reason, expectedUpdatedAt: z.iso.datetime() }).strict(),
+});
 export const deleteIncidentSchema = z.object({
   params: z.object({ id: z.string().uuid() }),
   body: z.object({ reason, confirmation: z.literal("DELETE") }),

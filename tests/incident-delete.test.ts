@@ -6,9 +6,10 @@ vi.mock('@/lib/jobs', () => ({ enqueueAssetCleanup: mocks.enqueueCleanup }));
 
 import { IncidentRepository } from '@/repositories/incident.repository';
 import { DeleteIncidentService } from '@/services/incident/delete-incident-service';
+import { operationalUserMock } from './helpers/operational-account';
 
 const closed = { incidentId: 'incident-id', title: 'Closed fire', status: 'CLOSED', reportedBy: 'citizen' };
-const main = { sub: 'admin', role: 'ADMIN', department: 'MAIN', isMainAdmin: true, type: 'access' } as const;
+const main = { sub: 'admin', sessionId: 'session', role: 'ADMIN', department: 'MAIN', isMainAdmin: true, type: 'access' } as const;
 const confirmation = { reason: 'Confirmed false report after review', confirmation: 'DELETE' };
 
 describe('safe incident deletion', () => {
@@ -30,6 +31,7 @@ describe('safe incident deletion', () => {
     vi.spyOn(IncidentRepository.prototype, 'findById').mockResolvedValue(closed as never);
     const tx = {
       $queryRaw: vi.fn(),
+      user: operationalUserMock(main),
       incident: { findUnique: vi.fn().mockResolvedValue({ ...closed, attachments: [{ publicId: 'proof' }], incidentUnits: [{ unitId: 'unit', status: 'RETURNED' }], tasks: [], reviewFlags: [] }), delete: vi.fn() },
       alert: { updateMany: vi.fn() }, task: { deleteMany: vi.fn() }, attachment: { deleteMany: vi.fn() },
       incidentUnit: { deleteMany: vi.fn(), count: vi.fn().mockResolvedValue(0) },
@@ -54,6 +56,7 @@ describe('safe incident deletion', () => {
     mocks.enqueueCleanup.mockRejectedValue(new Error('database unavailable'));
     mocks.transaction.mockImplementation(callback => callback({
       $queryRaw: vi.fn(),
+      user: operationalUserMock(main),
       incident: { findUnique: vi.fn().mockResolvedValue({ ...closed, attachments: [{ publicId: 'proof' }], incidentUnits: [], tasks: [], reviewFlags: [] }), delete: deleteIncident },
     }));
     expect((await DeleteIncidentService('incident-id', main, confirmation)).code).toBe(500);
@@ -76,7 +79,7 @@ describe('safe incident deletion', () => {
   it.each([{ incidentUnits: [{ unitId: 'unit', status: 'ON_SCENE' }], tasks: [] }, { incidentUnits: [], tasks: [{ status: 'IN_PROGRESS' }] }])('preserves evidence while operational work remains', async (work) => {
     vi.spyOn(IncidentRepository.prototype, 'findById').mockResolvedValue(closed as never);
     const deletion = vi.fn();
-    mocks.transaction.mockImplementation(callback => callback({ $queryRaw: vi.fn(), incident: { findUnique: vi.fn().mockResolvedValue({ ...closed, ...work, attachments: [{ publicId: 'proof' }], reviewFlags: [] }), delete: deletion } }));
+    mocks.transaction.mockImplementation(callback => callback({ $queryRaw: vi.fn(), user: operationalUserMock(main), incident: { findUnique: vi.fn().mockResolvedValue({ ...closed, ...work, attachments: [{ publicId: 'proof' }], reviewFlags: [] }), delete: deletion } }));
     expect((await DeleteIncidentService('incident-id', main, confirmation)).code).toBe(409);
     expect(mocks.enqueueCleanup).not.toHaveBeenCalled();
     expect(deletion).not.toHaveBeenCalled();

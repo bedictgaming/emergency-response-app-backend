@@ -97,10 +97,10 @@ describe("incident monitor list", () => {
     expect(result.data?.verifiedSummary).toMatchObject({ total: 14, resolved: 14, active: 0, responding: 0 });
     expect(result.data?.verifiedSummary?.services).toEqual({ fire: 6, medical: 3, police: 2, hazard: 3 });
     expect(mocks.countByStatus).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      scope: { AND: [scope, { verificationStatus: "VERIFIED" }] }, from,
+      scope: { AND: [scope, { verificationStatus: "VERIFIED", reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
     }));
     expect(mocks.countByResponseService).toHaveBeenCalledWith(expect.objectContaining({
-      scope: { AND: [scope, { verificationStatus: "VERIFIED" }] }, from,
+      scope: { AND: [scope, { verificationStatus: "VERIFIED", reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
     }));
     expect(mocks.findAll).toHaveBeenCalledWith(expect.objectContaining({ scope }));
   });

@@ -15,7 +15,7 @@ import { Department, IncidentStatus, ResponseService, ServiceResponseStatus, Sev
 import { departmentIncidentScope, departmentService } from "@/lib/department-access";
 import { isMainAdministrator } from "@/lib/permissions";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
-import { FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
+import { CorrectIncidentFlagService, FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -153,6 +153,11 @@ export class IncidentController {
 
   public listReviewFlags = async (req: Request, res: Response) => {
     const result = await ListIncidentReviewFlagsService(Math.max(1, Number(req.query.page) || 1), (req as AuthenticatedRequest).user!);
+    return res.status(result.code).json(result);
+  };
+
+  public correctReviewFlag = async (req: Request, res: Response) => {
+    const result = await CorrectIncidentFlagService(req.params.id as string, req.params.flagId as string, req.body, (req as AuthenticatedRequest).user!);
     return res.status(result.code).json(result);
   };
 

@@ -17,6 +17,7 @@ vi.mock('@/lib/jobs', () => ({ enqueueNotification: mocks.enqueue }));
 vi.mock('@/lib/incident-notification-audience', () => ({ incidentNotificationAudience: mocks.audience }));
 
 import { UpdateServiceResponseService } from "@/services/incident/update-service-response-service";
+import { operationalUserMock } from './helpers/operational-account';
 
 describe("multi-service completion", () => {
   it.each(['FIRE', 'MEDICAL', 'POLICE', 'HAZARD'] as const)('Main Admin cannot bypass resolution ownership through the %s response endpoint', async service => {
@@ -34,6 +35,7 @@ describe("multi-service completion", () => {
     mocks.audience.mockResolvedValue(['department-admin']);
     mocks.transaction.mockImplementation(async callback => callback({
       $queryRaw: mocks.queryRaw,
+      user: operationalUserMock({ sub: 'admin', sessionId: 'session', role: 'ADMIN', type: 'access', department: 'MEDICAL', isMainAdmin: false }),
       incident: { findUnique: mocks.findIncident, update: mocks.updateIncident },
       incidentServiceResponse: { update: mocks.updateService },
       auditLog: { create: mocks.createAudit },
@@ -53,7 +55,7 @@ describe("multi-service completion", () => {
       "00000000-0000-0000-0000-000000000001",
       "MEDICAL",
       "RESOLVED",
-      { sub: "medic-admin", role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
+      { sub: "medic-admin", sessionId: 'session', role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
     );
 
     expect(result.code).toBe(200);
@@ -73,7 +75,7 @@ describe("multi-service completion", () => {
       "00000000-0000-0000-0000-000000000001",
       "MEDICAL",
       "RESOLVED",
-      { sub: "medic-admin", role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
+      { sub: "medic-admin", sessionId: 'session', role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
     );
 
     expect(mocks.updateIncident).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "RESOLVED" } }));
@@ -84,7 +86,7 @@ describe("multi-service completion", () => {
       "00000000-0000-0000-0000-000000000001",
       "HAZARD",
       "RESOLVED",
-      { sub: "medic-admin", role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
+      { sub: "medic-admin", sessionId: 'session', role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
     );
 
     expect(result.code).toBe(403);
@@ -100,20 +102,20 @@ describe("multi-service completion", () => {
       "00000000-0000-0000-0000-000000000001",
       "MEDICAL",
       "RESOLVED",
-      { sub: "medic-admin", role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
+      { sub: "medic-admin", sessionId: 'session', role: "ADMIN", type: "access", department: "MEDICAL", isMainAdmin: false },
     );
     expect(result.code).toBe(409);
     expect(mocks.updateService).not.toHaveBeenCalled();
   });
   it('makes identical retries idempotent without advancing attention or creating audit/push work', async () => {
     mocks.findIncident.mockResolvedValue({ status: 'RESPONDING', attentionVersion: 1, serviceResponses: [{ service: 'MEDICAL', status: 'RESPONDING', attentionVersion: 1 }] });
-    expect((await UpdateServiceResponseService('incident', 'MEDICAL', 'RESPONDING', { sub: 'admin', role: 'ADMIN', type: 'access', department: 'MEDICAL' })).code).toBe(200);
+    expect((await UpdateServiceResponseService('incident', 'MEDICAL', 'RESPONDING', { sub: 'admin', sessionId: 'session', role: 'ADMIN', type: 'access', department: 'MEDICAL' })).code).toBe(200);
     expect(mocks.updateService).not.toHaveBeenCalled(); expect(mocks.createAudit).not.toHaveBeenCalled(); expect(mocks.enqueue).not.toHaveBeenCalled();
   });
   it('atomically advances service/global versions and enqueues only the reopened service', async () => {
     mocks.findIncident.mockResolvedValue({ status: 'RESPONDING', attentionVersion: 3, serviceResponses: [{ service: 'MEDICAL', status: 'RESOLVED', attentionVersion: 2 }, { service: 'FIRE', status: 'RESPONDING', attentionVersion: 1 }] });
     mocks.updateService.mockResolvedValue({ service: 'MEDICAL', status: 'RESPONDING', attentionVersion: 3 });
-    expect((await UpdateServiceResponseService('incident', 'MEDICAL', 'RESPONDING', { sub: 'admin', role: 'ADMIN', type: 'access', department: 'MEDICAL' })).code).toBe(200);
+    expect((await UpdateServiceResponseService('incident', 'MEDICAL', 'RESPONDING', { sub: 'admin', sessionId: 'session', role: 'ADMIN', type: 'access', department: 'MEDICAL' })).code).toBe(200);
     expect(mocks.updateService).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ attentionVersion: { increment: 1 } }) }));
     expect(mocks.updateIncident).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'RESPONDING', attentionVersion: { increment: 1 } } }));
     expect(mocks.audience).toHaveBeenCalledWith(expect.anything(), ['MEDICAL']);

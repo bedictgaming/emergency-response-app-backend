@@ -34,6 +34,16 @@ describe("database-aggregated analytics", () => {
   });
   const repository = new AnalyticsRepository();
 
+  it('excludes only confirmed-false flags from every analytics query without changing authorization scope', async () => {
+    mocks.groupBy.mockResolvedValue([]);
+    const scope = { requestedServices: { has: 'FIRE' as const } };
+    await repository.getDashboardAnalytics(scope);
+    expect(mocks.groupBy).toHaveBeenCalledTimes(4);
+    for (const [args] of mocks.groupBy.mock.calls) expect(args.where).toMatchObject({
+      verificationStatus: 'VERIFIED', reviewFlags: { none: { status: 'CONFIRMED' } }, AND: [scope],
+    });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findBarangays.mockResolvedValue([
