@@ -57,9 +57,13 @@ async function whileUserLocked(f: Fixture, operation: () => Promise<unknown>, mu
   let outcome: Promise<unknown> | undefined;
   try {
     await client.query('BEGIN'); await client.query('SELECT id FROM "User" WHERE id=$1 FOR UPDATE', [f.actor.sub]);
+    // Prime the transaction's activity snapshot before the contender starts.
+    // Each poll must refresh it, rather than accidentally relying on first-poll timing.
+    await client.query('SELECT count(*) FROM pg_stat_activity');
     outcome = operation();
     const deadline = Date.now() + 5000; let blocked = false;
     while (Date.now() < deadline) {
+      await client.query('SELECT pg_stat_clear_snapshot()');
       const result = await client.query("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%FOR UPDATE%'");
       if (result.rows[0].n > 0) { blocked = true; break; }
       await new Promise(resolve => setTimeout(resolve, 10));
