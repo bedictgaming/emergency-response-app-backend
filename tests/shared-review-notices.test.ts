@@ -87,7 +87,7 @@ describe('assigned-department read-only review notices', () => {
     const authorized = { AND: [scope, reviewNoticeIncidentScope('FIRE')] };
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ AND: [authorized] }) }));
     expect(mocks.groupBy).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: expect.objectContaining({ AND: [authorized] }) }));
-    expect(mocks.groupBy).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ AND: [{ AND: [authorized, { verificationStatus: 'VERIFIED', reviewFlags: { none: { status: 'CONFIRMED' } } }] }] }) }));
+    expect(mocks.groupBy).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ AND: [{ AND: [authorized, { verificationStatus: 'VERIFIED', status: { not: 'CANCELLED' }, reviewFlags: { none: { status: 'CONFIRMED' } } }] }] }) }));
     expect(result.data?.pagination).toEqual({ page: 2, limit: 5, total: 1, pages: 1 });
     expect(result.data?.incidents[0]).toMatchObject({ status: 'RESPONDING', reviewNotices: expect.any(Array), reviewFlags: [flags[1]] });
   });

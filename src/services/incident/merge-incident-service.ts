@@ -25,8 +25,8 @@ export async function MergeIncidentService(sourceIncidentId: string, targetIncid
       const currentSource = incidents.find(({ incidentId }) => incidentId === sourceIncidentId)!;
       const target = incidents.find(({ incidentId }) => incidentId === targetIncidentId)!;
       if (currentSource.mergedIntoId) throw new WorkflowConflict("The source incident was already merged");
-      if (["CLOSED", "RESOLVED"].includes(currentSource.status)) throw new WorkflowConflict("The source incident is no longer active");
-      if (["CLOSED", "RESOLVED"].includes(target.status)) throw new WorkflowConflict("The target incident is no longer active");
+      if (["CLOSED", "RESOLVED", 'CANCELLED'].includes(currentSource.status)) throw new WorkflowConflict("The source incident is no longer active");
+      if (["CLOSED", "RESOLVED", 'CANCELLED'].includes(target.status)) throw new WorkflowConflict("The target incident is no longer active");
       const sourceServices = responseServicesForIncident(currentSource);
       const targetServices = responseServicesForIncident(target);
       if (!sourceServices.length || !sameResponseServices(sourceServices, targetServices)) {

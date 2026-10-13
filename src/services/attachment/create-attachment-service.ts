@@ -23,7 +23,7 @@ export const CreateAttachmentService = async (
     }
 
     // 2. Prevent uploading to CLOSED incidents
-    if (incident.status === "CLOSED") {
+    if (incident.status === "CLOSED" || incident.status === 'CANCELLED') {
       return {
         code: 400,
         status: "error",
@@ -43,7 +43,7 @@ export const CreateAttachmentService = async (
     const attachment = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
       const current = await tx.incident.findUniqueOrThrow({ where: { incidentId } });
-      if (current.status === "CLOSED") throw new WorkflowConflict("Incident has closed");
+      if (current.status === "CLOSED" || current.status === 'CANCELLED') throw new WorkflowConflict("Incident has closed or been cancelled");
       if (asset.phash) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${asset.phash}, 0))`;
         if (await tx.attachment.findFirst({ where: { perceptualHash: asset.phash } })) throw new WorkflowConflict("This image was already used as evidence");

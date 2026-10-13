@@ -21,8 +21,9 @@ export async function FlagIncidentService(id: string, reason: string, actor: Jwt
       const fresh = await lockOperationalActor(tx, actor);
       if (!reviewDepartmentFor(fresh)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
-      const incident = await tx.incident.findFirst({ where: { incidentId: id, ...departmentIncidentScope(fresh) }, select: { incidentId: true } });
+      const incident = await tx.incident.findFirst({ where: { incidentId: id, ...departmentIncidentScope(fresh) }, select: { incidentId: true, status: true } });
       if (!incident) return null;
+      if (incident.status === 'CANCELLED') return false;
       const department = fresh.department!;
       const existing = await tx.incidentReviewFlag.findUnique({ where: { incidentId_department: { incidentId: id, department } } });
       // Retries and simultaneous flags from the same department preserve the first reason.
@@ -34,6 +35,7 @@ export async function FlagIncidentService(id: string, reason: string, actor: Jwt
       await tx.auditLog.create({ data: { actorId: actor.sub, action: "INCIDENT_FLAGGED", entityType: "Incident", entityId: id, metadata: { reviewFlagId: saved.reviewFlagId, department, reason: trimmed } } });
       return saved;
     });
+    if (flag === false) return { code: 409, status: 'error', message: 'This report is cancelled. Review its retained history instead of flagging it again.' };
     if (!flag) return { code: 403, status: "error", message: "Incident is outside your department or no longer exists" };
     publishEmergencyEvent({ type: "incident.updated", entityId: id });
     return { code: 200, status: "success", data: { flag } };
@@ -89,7 +91,7 @@ async function saveReviewDecision(id: string, flagId: string, input: { status: "
 export async function ListIncidentReviewFlagsService(page: number, actor: JwtPayload) {
   if (!isMainAdministrator(actor)) return { code: 403, status: "error", message: "Only the main administrator can read the review queue" };
   try {
-    const where = { status: { in: [IncidentReviewStatus.PENDING, IncidentReviewStatus.CONFIRMED] } };
+    const where = { status: { in: [IncidentReviewStatus.PENDING, IncidentReviewStatus.CONFIRMED] }, incident: { status: { not: 'CANCELLED' as const } } };
     const limit = 20;
     const [flags, total] = await Promise.all([
       // Enum order is PENDING, CONFIRMED, DISMISSED; oldest pending first.

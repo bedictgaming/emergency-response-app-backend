@@ -56,6 +56,7 @@ describe("incident monitor list", () => {
       active: 2,
       responding: 4,
       resolved: 6,
+      cancelled: 0,
       services: { fire: 4, medical: 3, police: 2, hazard: 5 },
     });
     expect(mocks.countByStatus).toHaveBeenCalledOnce();
@@ -71,7 +72,7 @@ describe("incident monitor list", () => {
     });
 
     expect(result.data?.pagination).toEqual({ page: 1, limit: 5, total: 5, pages: 1 });
-    expect(result.data?.summary).toEqual({ total: 8, active: 0, responding: 3, resolved: 5 });
+    expect(result.data?.summary).toEqual({ total: 8, active: 0, responding: 3, resolved: 5, cancelled: 0 });
     expect(mocks.countByServiceStatus).toHaveBeenCalledOnce();
     expect(mocks.countByStatus).not.toHaveBeenCalled();
   });
@@ -92,15 +93,15 @@ describe("incident monitor list", () => {
     const result = await GetAllIncidentsService({
       scope, from, page: 2, limit: 5, statuses: ["RESOLVED", "CLOSED"], includeVerifiedSummary: true,
     });
-    expect(result.data?.summary).toEqual({ total: 15, active: 0, responding: 0, resolved: 15 });
+    expect(result.data?.summary).toEqual({ total: 15, active: 0, responding: 0, resolved: 15, cancelled: 0 });
     expect(result.data?.pagination).toEqual({ page: 2, limit: 5, total: 15, pages: 3 });
     expect(result.data?.verifiedSummary).toMatchObject({ total: 14, resolved: 14, active: 0, responding: 0 });
     expect(result.data?.verifiedSummary?.services).toEqual({ fire: 6, medical: 3, police: 2, hazard: 3 });
     expect(mocks.countByStatus).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      scope: { AND: [scope, { verificationStatus: "VERIFIED", reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
+      scope: { AND: [scope, { verificationStatus: "VERIFIED", status: { not: 'CANCELLED' }, reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
     }));
     expect(mocks.countByResponseService).toHaveBeenCalledWith(expect.objectContaining({
-      scope: { AND: [scope, { verificationStatus: "VERIFIED", reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
+      scope: { AND: [scope, { verificationStatus: "VERIFIED", status: { not: 'CANCELLED' }, reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
     }));
     expect(mocks.findAll).toHaveBeenCalledWith(expect.objectContaining({ scope }));
   });

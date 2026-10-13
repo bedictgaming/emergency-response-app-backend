@@ -59,7 +59,10 @@ describe("incident list data minimization", () => {
     });
 
     expect(mocks.findMany.mock.calls[0][0].where.serviceResponses).toEqual({
-      some: { service: "MEDICAL", status: { in: ["RESOLVED"] } },
+      some: { service: "MEDICAL" },
+    });
+    expect(mocks.findMany.mock.calls[0][0].where.AND).toContainEqual({
+      OR: [{ status: { not: 'CANCELLED' }, serviceResponses: { some: { service: 'MEDICAL', status: { in: ['RESOLVED'] } } } }],
     });
   });
 

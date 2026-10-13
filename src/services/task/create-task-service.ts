@@ -3,6 +3,7 @@ import { CreateTaskInput } from "@/schema/task/create-task.schema";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
 import { enqueueNotification } from "@/lib/jobs";
+import { WorkflowConflict, isWorkflowConflict } from '@/lib/workflow-error';
 
 const taskRepository = new TaskRepository();
 
@@ -20,11 +21,11 @@ export const CreateTaskService = async (
     }
 
     // Verify incident is not already closed
-    if (incident.status === "CLOSED") {
+    if (incident.status === "CLOSED" || incident.status === 'CANCELLED') {
       return {
         code: 400,
         status: "error",
-        message: "Cannot add tasks to a CLOSED incident",
+        message: "Cannot add tasks to a closed or cancelled incident",
       };
     }
 
@@ -33,6 +34,12 @@ export const CreateTaskService = async (
     }
 
     const task = await prisma.$transaction(async (tx) => {
+      // Fence task creation against cancellation/deletion under the same parent
+      // lock. A middleware/preflight read cannot protect this interval.
+      await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
+      const current = await tx.incident.findUnique({ where: { incidentId } });
+      if (!current || ['CLOSED', 'CANCELLED'].includes(current.status) || current.verificationStatus !== 'VERIFIED')
+        throw new WorkflowConflict('This report no longer accepts response tasks.');
       const created = await tx.task.create({
         data: { incidentId, taskName: data.taskName, description: data.description, priority: data.priority, assignedTo: data.assignedTo, dueAt: data.dueAt },
         include: { incident: { select: { incidentId: true, title: true, status: true } }, assignee: { include: { user: { select: { id: true, name: true, email: true } } } } },
@@ -53,6 +60,7 @@ export const CreateTaskService = async (
       data: { task },
     };
   } catch (error) {
+    if (isWorkflowConflict(error)) return { code: 409, status: 'error', message: 'Report changed; refresh before creating a task.' };
     console.error("CreateTaskService Error", error);
     return { code: 500, status: "error", message: "Failed to create task" };
   }

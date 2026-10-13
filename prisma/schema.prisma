@@ -57,6 +57,7 @@ enum IncidentStatus {
   RESPONDING
   RESOLVED
   CLOSED
+  CANCELLED
 }
 
 enum SeverityLevel {
@@ -133,6 +134,7 @@ enum ResponseService {
 enum ServiceResponseStatus {
   RESPONDING
   RESOLVED
+  CANCELLED
 }
 
 enum JobStatus {

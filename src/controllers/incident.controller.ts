@@ -17,6 +17,7 @@ import { isMainAdministrator } from "@/lib/permissions";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
 import { CorrectIncidentFlagService, FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
 import { reviewNoticeDepartmentFor } from '@/lib/incident-review-notices';
+import { CancelFalseIncidentService } from '@/services/incident/cancel-false-incident-service';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -141,6 +142,11 @@ export class IncidentController {
     const authReq = req as AuthenticatedRequest;
     const id = req.params.id as string;
     const result = await DeleteIncidentService(id, authReq.user!, req.body);
+    return res.status(result.code).json(result);
+  };
+
+  public cancelFalse = async (req: Request, res: Response) => {
+    const result = await CancelFalseIncidentService(req.params.id as string, req.body, (req as AuthenticatedRequest).user!);
     return res.status(result.code).json(result);
   };
 

@@ -9,6 +9,7 @@ import { incidentNotificationAudience } from '@/lib/incident-notification-audien
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 
 export async function UpdateServiceResponseService(incidentId: string, service: ResponseService, status: ServiceResponseStatus, actor: JwtPayload) {
+  if (status === 'CANCELLED') return { code: 403, status: 'error', message: 'Only the Main Admin confirmed-false workflow can cancel responses.' };
   if (!["ADMIN", "DISPATCHER"].includes(actor.role)) return { code: 403, status: "error", message: "Operational role required" };
   if (isMainAdministrator(actor) && status === "RESOLVED") return { code: 403, status: "error", message: "Only the assigned department can resolve this response" };
   if (!isMainAdministrator(actor) && departmentService(actor.department) !== service) return { code: 403, status: "error", message: "You may only update your own department response" };
@@ -20,7 +21,7 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
       const incident = await tx.incident.findUnique({ where: { incidentId }, include: { serviceResponses: true } });
       if (!incident) return null;
-      if (incident.status === "CLOSED" || incident.mergedIntoId) return "closed";
+      if (incident.status === "CLOSED" || incident.status === 'CANCELLED' || incident.mergedIntoId) return "closed";
       const current = incident.serviceResponses.find(item => item.service === service);
       if (!current) return false;
       if (current.status === status) return current;
@@ -40,7 +41,7 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
       return updated;
     });
     if (result === null) return { code: 404, status: "error", message: "Incident not found" };
-    if (result === "closed") return { code: 409, status: "error", message: "A closed or merged report cannot change its department response" };
+    if (result === "closed") return { code: 409, status: "error", message: "A closed, cancelled or merged report cannot change its department response" };
     if (result === false) return { code: 409, status: "error", message: "That service was not requested for this incident" };
     publishEmergencyEvent({ type: "incident.updated", entityId: incidentId });
     return { code: 200, status: "success", message: "Department response updated", data: { serviceResponse: result } };

@@ -16,7 +16,13 @@ export const correctIncidentFlagSchema = z.object({
   params: z.object({ id: z.string().uuid(), flagId: z.string().uuid() }),
   body: z.object({ reviewNotes: reason, expectedUpdatedAt: z.iso.datetime() }).strict(),
 });
+export const falseReportVersionSchema = z.object({
+  reviewFlagId: z.string().uuid(), expectedReviewUpdatedAt: z.iso.datetime(), expectedIncidentUpdatedAt: z.iso.datetime(),
+}).strict();
+export const cancelFalseIncidentSchema = z.object({
+  params: z.object({ id: z.string().uuid() }), body: falseReportVersionSchema.extend({ reason }).strict(),
+});
 export const deleteIncidentSchema = z.object({
   params: z.object({ id: z.string().uuid() }),
-  body: z.object({ reason, confirmation: z.literal("DELETE") }),
+  body: z.object({ reason, confirmation: z.literal("DELETE"), falseReport: falseReportVersionSchema.optional() }),
 });

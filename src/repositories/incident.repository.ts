@@ -84,7 +84,17 @@ export class IncidentRepository {
   async findAll(filters?: IncidentFilters) {
     return await prisma.incident.findMany({
       where: {
-        AND: [filters?.scope ?? {}, ...historyScope(filters)],
+        AND: [filters?.scope ?? {}, ...historyScope(filters),
+          ...(filters?.responseService && filters.serviceStatuses?.length ? [{
+            OR: [
+              ...(filters.serviceStatuses.includes('CANCELLED') ? [{ status: 'CANCELLED' as const }] : []),
+              ...(filters.serviceStatuses.some(status => status !== 'CANCELLED') ? [{
+                status: { not: 'CANCELLED' as const },
+                serviceResponses: { some: { service: filters.responseService, status: { in: filters.serviceStatuses.filter(status => status !== 'CANCELLED') } } },
+              }] : []),
+            ],
+          }] : []),
+        ],
         ...(filters?.responderId && responderIncidentScope(filters.responderId)),
         ...(filters?.statuses?.length
           ? { status: { in: filters.statuses } }
@@ -93,7 +103,6 @@ export class IncidentRepository {
           serviceResponses: {
             some: {
               service: filters.responseService,
-              ...(filters.serviceStatuses?.length && { status: { in: filters.serviceStatuses } }),
             },
           },
         }),
@@ -163,25 +172,31 @@ export class IncidentRepository {
   }
 
   async countByServiceStatus(filters: IncidentFilters, service: ResponseService) {
-    return prisma.incidentServiceResponse.groupBy({
+    const incidentScope: Prisma.IncidentWhereInput = {
+      AND: [filters.scope ?? {}, ...historyScope(filters)],
+      ...(filters.responderId && responderIncidentScope(filters.responderId)),
+      ...(filters.severityLevel && { severityLevel: filters.severityLevel }),
+      ...(filters.typeId && { typeId: filters.typeId }),
+      ...(filters.locationId && { locationId: filters.locationId }),
+      ...(filters.barangayId && { barangayId: filters.barangayId }),
+      ...(filters.reportedBy && { reportedBy: filters.reportedBy }),
+      ...((filters.from || filters.to) && { reportedAt: { ...(filters.from && { gte: filters.from }), ...(filters.to && { lte: filters.to }) } }),
+    };
+    const [rows, cancelled] = await Promise.all([prisma.incidentServiceResponse.groupBy({
       by: ["status"],
       where: {
         service,
         incident: {
           is: {
-            AND: [filters.scope ?? {}, ...historyScope(filters)],
-            ...(filters.responderId && responderIncidentScope(filters.responderId)),
-            ...(filters.severityLevel && { severityLevel: filters.severityLevel }),
-            ...(filters.typeId && { typeId: filters.typeId }),
-            ...(filters.locationId && { locationId: filters.locationId }),
-            ...(filters.barangayId && { barangayId: filters.barangayId }),
-            ...(filters.reportedBy && { reportedBy: filters.reportedBy }),
-            ...((filters.from || filters.to) && { reportedAt: { ...(filters.from && { gte: filters.from }), ...(filters.to && { lte: filters.to }) } }),
+            AND: [incidentScope, { status: { not: 'CANCELLED' } }],
           },
         },
       },
       _count: { _all: true },
-    });
+    }), prisma.incident.count({ where: { AND: [incidentScope, { status: 'CANCELLED' }], serviceResponses: { some: { service } } } })]);
+    // Already resolved department history is retained. The parent cancellation
+    // still belongs exclusively in Cancelled, never both Resolved and Cancelled.
+    return [...rows, { status: ServiceResponseStatus.CANCELLED, _count: { _all: cancelled } }];
   }
 
   async countByResponseService(filters?: IncidentFilters) {

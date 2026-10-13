@@ -21,6 +21,7 @@ export const UpdateIncidentService = async (
   data: UpdateIncidentInput,
   actorId?: string,
 ) => {
+  if (data.status === 'CANCELLED') return { code: 403, status: 'error', message: 'Use the Main Admin confirmed-false cancellation workflow.' };
   // Overall completion belongs exclusively to the department-response workflow.
   // Reject even direct/internal calls, not only the removed dashboard control.
   if (data.status === "RESOLVED") {

@@ -7,18 +7,20 @@ import type { JwtPayload } from "@/lib/jwt";
 import { isMainAdministrator } from "@/lib/permissions";
 import { publishEmergencyEvent } from "@/lib/events";
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
+import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/lib/false-report-disposition';
 
 const incidentRepository = new IncidentRepository();
-export const DeleteIncidentService = async (id: string, actor: JwtPayload, input: { reason: string; confirmation: string }) => {
+export const DeleteIncidentService = async (id: string, actor: JwtPayload, input: { reason: string; confirmation: string; falseReport?: FalseReportVersion }) => {
   try {
     if (!isMainAdministrator(actor)) {
       return { code: 403, status: "error", message: "Only the main administrator can permanently delete an incident" };
     }
-    const reason = input.reason?.trim();
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
     if (!reason || reason.length < 10 || reason.length > 500 || input.confirmation !== "DELETE") return { code: 400, status: "error", message: "A deletion reason and DELETE confirmation are required" };
+    if (input.falseReport && !validFalseReportVersion(input.falseReport)) return { code: 400, status: 'error', message: 'Current report and confirmed-review versions are required for early deletion.' };
     const existing = await incidentRepository.findById(id);
     if (!existing) return { code: 404, status: "error", message: "Incident not found" };
-    if (existing.status !== "CLOSED") {
+    if (!['CLOSED', 'CANCELLED'].includes(existing.status) && !input.falseReport) {
       return { code: 409, status: "error", message: "Close the incident before permanently deleting it" };
     }
 
@@ -31,7 +33,8 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
         include: { attachments: { select: { publicId: true } }, incidentUnits: { select: { unitId: true, status: true } }, tasks: { select: { status: true } }, reviewFlags: true },
       });
       if (!current) throw new WorkflowConflict("Incident was already removed");
-      if (current.status !== "CLOSED") throw new WorkflowConflict("Incident status changed; close it before deletion");
+      if (input.falseReport) requireConfirmedFalseReport(current, input.falseReport);
+      else if (!['CLOSED', 'CANCELLED'].includes(current.status)) throw new WorkflowConflict("Incident status changed; close it before deletion");
       if (current.incidentUnits.some(unit => unit.status !== "RETURNED") || current.tasks.some(task => task.status !== "DONE")) throw new WorkflowConflict("Return all assigned units and complete all tasks before deletion");
 
       for (const attachment of current.attachments) {
@@ -50,7 +53,7 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
       }
       await tx.auditLog.create({ data: {
         actorId: actor.sub, action: "INCIDENT_DELETED", entityType: "Incident", entityId: id,
-        metadata: { title: current.title, status: current.status, reason, attachmentCount: current.attachments.length, reviewFlags: current.reviewFlags.map(flag => ({ department: flag.department, reason: flag.reason, status: flag.status, reviewNotes: flag.reviewNotes })) },
+        metadata: { title: current.title, status: current.status, reason, ...(input.falseReport && { confirmedFalseDisposition: true, confirmedReviewFlagId: input.falseReport.reviewFlagId }), attachmentCount: current.attachments.length, reviewFlags: current.reviewFlags.map(flag => ({ department: flag.department, reason: flag.reason, status: flag.status, reviewNotes: flag.reviewNotes })) },
       } });
     }, { timeout: 20_000 });
 
@@ -61,7 +64,7 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
     if (isWorkflowConflict(error)) {
       return { code: 409, status: "error", message: error instanceof Error ? error.message : "Incident changed concurrently" };
     }
-    console.error("DeleteIncidentService Error", error);
+    console.error("DeleteIncidentService failed; refresh before retrying");
     return { code: 500, status: "error", message: "Failed to delete incident" };
   }
 };

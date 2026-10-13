@@ -13,16 +13,17 @@ export async function VerifyIncidentService(
 ) {
   const existing = await prisma.incident.findUnique({
     where: { incidentId },
-    select: { incidentId: true, title: true, reportedBy: true, verificationStatus: true },
+    select: { incidentId: true, title: true, reportedBy: true, verificationStatus: true, status: true },
   });
   if (!existing) return { code: 404, status: "error", message: "Incident not found" };
+  if (existing.status === 'CANCELLED') return { code: 409, status: 'error', message: 'A cancelled report cannot be reopened by verification.' };
   if (existing.verificationStatus !== VerificationStatus.PENDING) {
     return { code: 409, status: "error", message: `Incident has already been ${existing.verificationStatus.toLowerCase()}` };
   }
 
   const incident = await prisma.$transaction(async (tx) => {
     const claim = await tx.incident.updateMany({
-      where: { incidentId, verificationStatus: VerificationStatus.PENDING },
+      where: { incidentId, verificationStatus: VerificationStatus.PENDING, status: { not: 'CANCELLED' } },
       data: {
         verificationStatus: input.verificationStatus,
         verificationNotes: input.verificationNotes ?? null,

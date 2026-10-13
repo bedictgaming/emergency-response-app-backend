@@ -88,11 +88,12 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
         RESPONDING: 0,
         RESOLVED: 0,
         CLOSED: 0,
+        CANCELLED: 0,
       });
     const serviceCounts = filters?.responseService && groupedCounts?.reduce<Record<ServiceResponseStatus, number>>((result, row) => {
       result[row.status as ServiceResponseStatus] = row._count._all;
       return result;
-    }, { RESPONDING: 0, RESOLVED: 0 });
+    }, { RESPONDING: 0, RESOLVED: 0, CANCELLED: 0 });
     const allTotal = counts
       ? Object.values(counts).reduce((sum, count) => sum + count, 0)
       : serviceCounts
@@ -126,6 +127,7 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
             active: counts ? counts.OPEN + counts.ACTIVE : 0,
             responding: serviceCounts?.RESPONDING ?? counts!.RESPONDING,
             resolved: serviceCounts?.RESOLVED ?? (counts!.RESOLVED + counts!.CLOSED),
+            cancelled: serviceCounts?.CANCELLED ?? counts!.CANCELLED,
             ...(responseServiceCounts && {
               services: {
                 fire: responseServiceCounts.FIRE,

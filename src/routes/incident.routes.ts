@@ -16,7 +16,7 @@ import { Role } from "@/generated/prisma";
 import { Permission } from "@/lib/permissions";
 import { requireIncidentAccess } from "@/middlewares/incident-access-middleware";
 import { requireTargetResponderDepartment, requireTargetUnitDepartment, requireUnitDepartment } from "@/middlewares/operational-access-middleware";
-import { correctIncidentFlagSchema, deleteIncidentSchema, flagIncidentSchema, listReviewFlagsSchema, reviewIncidentFlagSchema } from "@/schema/incident/review-incident.schema";
+import { cancelFalseIncidentSchema, correctIncidentFlagSchema, deleteIncidentSchema, flagIncidentSchema, listReviewFlagsSchema, reviewIncidentFlagSchema } from "@/schema/incident/review-incident.schema";
 import { z } from 'zod';
 import { ResponseService } from '@/generated/prisma';
 import type { JwtPayload } from '@/lib/jwt';
@@ -64,6 +64,7 @@ router.get("/v1/:id", authMiddleware.execute, requireIncidentAccess, incidentCon
 router.post("/v1/:id/review-flags", authMiddleware.execute, permittedRole([Role.ADMIN]), requirePermission(Permission.IncidentManageDepartment), validateSchema(flagIncidentSchema), requireIncidentAccess, incidentController.flag);
 router.patch("/v1/:id/review-flags/:flagId", authMiddleware.execute, requireMainAdmin, validateSchema(reviewIncidentFlagSchema), requireIncidentAccess, incidentController.reviewFlag);
 router.post("/v1/:id/review-flags/:flagId/correction", authMiddleware.execute, requireMainAdmin, validateSchema(correctIncidentFlagSchema), requireIncidentAccess, incidentController.correctReviewFlag);
+router.post('/v1/:id/cancel-confirmed-false', authMiddleware.execute, requireMainAdmin, requirePermission(Permission.IncidentManageAll), validateSchema(cancelFalseIncidentSchema), requireIncidentAccess, incidentController.cancelFalse);
 
 // Protected Routes — any authenticated user can report an incident
 router.post(

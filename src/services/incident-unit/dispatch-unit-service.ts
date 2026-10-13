@@ -26,7 +26,7 @@ export const DispatchUnitService = async (
     }
 
     // 2. Cannot dispatch units to a CLOSED or RESOLVED incident
-    if (incident.status === "CLOSED" || incident.status === "RESOLVED") {
+    if (incident.status === "CLOSED" || incident.status === "RESOLVED" || incident.status === 'CANCELLED') {
       return {
         code: 400,
         status: "error",
@@ -81,7 +81,7 @@ export const DispatchUnitService = async (
     const incidentUnit = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
       const current = await tx.incident.findUniqueOrThrow({ where: { incidentId } });
-      if (current.verificationStatus !== "VERIFIED" || ["RESOLVED", "CLOSED"].includes(current.status)) throw new WorkflowConflict("Incident is no longer dispatchable");
+      if (current.verificationStatus !== "VERIFIED" || ["RESOLVED", "CLOSED", 'CANCELLED'].includes(current.status)) throw new WorkflowConflict("Incident is no longer dispatchable");
       const reserved = await tx.unit.updateMany({ where: { unitId: data.unitId, status: UnitStatus.AVAILABLE }, data: { status: UnitStatus.DEPLOYED } });
       if (reserved.count !== 1) throw new WorkflowConflict("This unit is no longer available");
       const created = await tx.incidentUnit.create({
