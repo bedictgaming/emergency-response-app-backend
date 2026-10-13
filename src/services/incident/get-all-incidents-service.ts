@@ -2,6 +2,7 @@ import { IncidentRepository } from "@/repositories/incident.repository";
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { protectIncidentEvidence } from "@/lib/evidence";
 import { verifiedAnalyticsEligibility } from '@/lib/verified-analytics';
+import { presentIncidentReviews, reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/lib/incident-review-notices';
 
 const incidentRepository = new IncidentRepository();
 
@@ -31,10 +32,14 @@ interface GetAllIncidentsFilters {
   includeAttachments?: boolean;
   includeUnits?: boolean;
   reviewDepartment?: Department | "ALL";
+  reviewNoticeDepartment?: ReviewNoticeScope;
 }
 
 export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) => {
   try {
+    if (filters?.reviewNoticeDepartment) {
+      filters = { ...filters, scope: { AND: [filters.scope ?? {}, reviewNoticeIncidentScope(filters.reviewNoticeDepartment)] } };
+    }
     // Live emergency monitoring only needs the latest incidents. Avoid the
     // additional filtered COUNT query on every poll, while keeping the
     // normal dashboard pagination response unchanged.
@@ -112,7 +117,7 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       code: 200,
       status: "success",
       data: {
-        incidents: incidents.map(protectIncidentEvidence),
+        incidents: incidents.map(incident => protectIncidentEvidence(presentIncidentReviews(incident, filters?.reviewDepartment, filters?.reviewNoticeDepartment))),
         ...(verified && { verifiedSummary: verified }),
         ...(total !== undefined && {
           pagination: { page: filters?.page ?? 1, limit: filters?.limit ?? 50, total, pages: Math.ceil(total / (filters?.limit ?? 50)) },

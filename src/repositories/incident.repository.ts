@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { responderIncidentScope } from '@/lib/incident-scope';
+import { reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/lib/incident-review-notices';
 
 interface CreateIncidentData {
   title: string;
@@ -49,12 +50,15 @@ interface IncidentFilters {
   includeAttachments?: boolean;
   includeUnits?: boolean;
   reviewDepartment?: Department | "ALL";
+  reviewNoticeDepartment?: ReviewNoticeScope;
 }
 
 const reviewFlagInclude = (department?: Department | "ALL") => department ? {
   where: { status: { not: "DISMISSED" as const }, ...(department !== "ALL" && { department }) },
   orderBy: { createdAt: "asc" as const },
 } : false;
+
+const sharedReviewInclude = { orderBy: [{ createdAt: 'asc' as const }, { reviewFlagId: 'asc' as const }], take: 5 };
 
 // Always intersect search/date constraints with authorization, never replace it.
 const historyWhere = (filters?: IncidentFilters): Prisma.IncidentWhereInput => ({
@@ -117,7 +121,7 @@ export class IncidentRepository {
           take: 1,
         } : false,
         serviceResponses: true,
-        reviewFlags: reviewFlagInclude(filters?.reviewDepartment),
+        reviewFlags: filters?.reviewNoticeDepartment ? sharedReviewInclude : reviewFlagInclude(filters?.reviewDepartment),
       },
       orderBy: [{ reportedAt: "desc" }, { incidentId: "desc" }],
       skip: ((filters?.page ?? 1) - 1) * (filters?.limit ?? 50),
@@ -202,9 +206,9 @@ export class IncidentRepository {
   }
 
 
-  async findById(id: string, reviewDepartment?: Department | "ALL") {
+  async findById(id: string, reviewDepartment?: Department | "ALL", reviewNoticeDepartment?: ReviewNoticeScope) {
     return await prisma.incident.findUnique({
-      where: { incidentId: id },
+      where: { incidentId: id, ...(reviewNoticeDepartment && { AND: [reviewNoticeIncidentScope(reviewNoticeDepartment)] }) },
       include: {
         type: true,
         location: true,
@@ -234,7 +238,7 @@ export class IncidentRepository {
           orderBy: { uploadedAt: "desc" },
         },
         serviceResponses: true,
-        reviewFlags: reviewFlagInclude(reviewDepartment),
+        reviewFlags: reviewNoticeDepartment ? sharedReviewInclude : reviewFlagInclude(reviewDepartment),
       },
     });
   }

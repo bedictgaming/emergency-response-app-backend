@@ -16,6 +16,7 @@ import { departmentIncidentScope, departmentService } from "@/lib/department-acc
 import { isMainAdministrator } from "@/lib/permissions";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
 import { CorrectIncidentFlagService, FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
+import { reviewNoticeDepartmentFor } from '@/lib/incident-review-notices';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -91,6 +92,7 @@ export class IncidentController {
       includeAttachments: req.query.includeAttachments === "true",
       includeUnits: req.query.includeUnits === "true",
       reviewDepartment: req.query.includeReviewFlags === "true" ? reviewDepartmentFor(authReq.user!) : undefined,
+      reviewNoticeDepartment: req.query.includeReviewFlags === "true" ? reviewNoticeDepartmentFor(authReq.user!) : undefined,
     };
 
     const result = await GetAllIncidentsService(filters);
@@ -100,7 +102,8 @@ export class IncidentController {
   // GET /incidents/v1/:id
   public getById = async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const result = await GetIncidentService(id, reviewDepartmentFor((req as AuthenticatedRequest).user!));
+    const actor = (req as AuthenticatedRequest).user!;
+    const result = await GetIncidentService(id, reviewDepartmentFor(actor), reviewNoticeDepartmentFor(actor));
     return res.status(result.code).json(result);
   };
 

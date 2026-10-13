@@ -9,17 +9,22 @@ import { FlagIncidentService, ReviewIncidentFlagService, CorrectIncidentFlagServ
 import { DeleteIncidentService } from '@/services/incident/delete-incident-service';
 import { UpdateServiceResponseService } from '@/services/incident/update-service-response-service';
 import { AnalyticsRepository } from '@/repositories/analytics.repository';
+import request from 'supertest';
+import app from '@/app';
+import { signAccessToken } from '@/lib/jwt';
+import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
+import type { Department, Role } from '@/generated/prisma';
 
 const suite = describe.runIf(process.env.RUN_INCIDENT_REVIEW_HARDENING_TESTS === '1');
 const users: string[] = [];
 let typeId: string, locationId: string, confirmedTarget = false;
 const notes = 'Synthetic investigation found this was not a genuine emergency.';
 
-async function actor(main: boolean): Promise<JwtPayload> {
+async function actor(main: boolean, department: Department = 'FIRE', role: Role = 'ADMIN'): Promise<JwtPayload> {
   const id = randomUUID(); users.push(id);
-  await prisma.user.create({ data: { id, name: 'Synthetic review fixture', role: 'ADMIN', department: main ? 'MAIN' : 'FIRE', isMainAdmin: main } });
+  await prisma.user.create({ data: { id, name: 'Synthetic review fixture', role, department: role === 'USER' ? null : main ? 'MAIN' : department, isMainAdmin: main } });
   const session = await prisma.token.create({ data: { userId: id, type: 'REFRESH', token: `synthetic-${randomUUID()}`, expiresAt: new Date(Date.now() + 3_600_000) } });
-  return { sub: id, sessionId: session.id, type: 'access', role: 'ADMIN', department: main ? 'MAIN' : 'FIRE', isMainAdmin: main };
+  return { sub: id, sessionId: session.id, type: 'access', role, department: role === 'USER' ? null : main ? 'MAIN' : department, isMainAdmin: main };
 }
 async function incident(user: JwtPayload, closed = false) {
   return prisma.incident.create({ data: { title: 'Synthetic native review fixture; no emergency', reportedBy: user.sub, typeId, locationId, severityLevel: 'MEDIUM',
@@ -128,4 +133,75 @@ suite('native false-report review hardening', () => {
     // Ordinary authorized completion remains available after review correction.
     expect((await UpdateServiceResponseService(report.incidentId, 'FIRE', 'RESOLVED', fire)).code).toBe(200);
   });
+
+  it('shares committed DRRMO decisions with assigned departments only, with no extra mutation authority or operational effects', async () => {
+    const main = await actor(true), citizen = await actor(false, 'FIRE', 'USER');
+    const assigned = await Promise.all((['FIRE', 'MEDICAL', 'POLICE', 'DRRMO'] as const).map(dept => actor(false, dept)));
+    const dispatcher = await actor(false, 'FIRE', 'DISPATCHER');
+    const report = await prisma.incident.create({ data: {
+      title: 'Synthetic shared review; no emergency', reportedBy: citizen.sub, typeId, locationId,
+      severityLevel: 'MEDIUM', requestedServices: ['FIRE', 'MEDICAL', 'POLICE', 'HAZARD'],
+      status: 'RESPONDING', verificationStatus: 'VERIFIED',
+      serviceResponses: { create: (['FIRE', 'MEDICAL', 'POLICE', 'HAZARD'] as const).map(service => ({ service, status: 'RESPONDING' })) },
+    } });
+    const cookie = (user: JwtPayload) => `accessToken=${signAccessToken(user.sub, user.role, '15m', user.sessionId!)}`;
+    const read = (user: JwtPayload) => request(app).get(`/api/incidents/v1/${report.incidentId}`).set('Cookie', cookie(user));
+    const events: EmergencyEvent[] = [];
+    const off = subscribeEmergencyEvents(event => { if (event.entityId === report.incidentId) events.push(event); });
+    const before = await prisma.incident.findUniqueOrThrow({ where: { incidentId: report.incidentId }, include: { serviceResponses: true } });
+    try {
+      expect((await FlagIncidentService(report.incidentId, notes, assigned[3])).code).toBe(200);
+      for (const user of [...assigned, dispatcher]) {
+        const detail = await read(user);
+        expect(detail.status).toBe(200);
+        expect(detail.body.data.incident.reviewNotices).toMatchObject([{ department: 'DRRMO', status: 'PENDING', reason: notes }]);
+        expect(detail.body.data.incident.reviewFlags?.length ?? 0).toBe(user.department === 'DRRMO' ? 1 : 0);
+        for (const notice of detail.body.data.incident.reviewNotices) {
+          expect(notice).not.toHaveProperty('flaggedBy'); expect(notice).not.toHaveProperty('reviewedBy');
+        }
+        const list = await request(app).get('/api/incidents/v1/?includeReviewFlags=true&department=MAIN&limit=100').set('Cookie', cookie(user));
+        expect(list.status).toBe(200);
+        expect(list.body.data.incidents.find((row: { incidentId: string }) => row.incidentId === report.incidentId).reviewNotices).toHaveLength(1);
+      }
+      let flag = await prisma.incidentReviewFlag.findUniqueOrThrow({ where: { incidentId_department: { incidentId: report.incidentId, department: 'DRRMO' } } });
+      const input = { status: 'CONFIRMED' as const, reviewNotes: notes, expectedUpdatedAt: flag.updatedAt.toISOString() };
+      const deniedReview = await request(app).patch(`/api/incidents/v1/${report.incidentId}/review-flags/${flag.reviewFlagId}`).set('Origin', 'http://localhost:3000').set('Cookie', cookie(assigned[0])).send(input);
+      expect(deniedReview.status).toBe(403);
+      expect(deniedReview.body.message).toMatch(/main administrator/i);
+      expect((await ReviewIncidentFlagService(report.incidentId, flag.reviewFlagId, input, main)).code).toBe(200);
+      for (const user of assigned) expect((await read(user)).body.data.incident.reviewNotices).toMatchObject([{ status: 'CONFIRMED', reviewNotes: notes }]);
+      flag = await prisma.incidentReviewFlag.findUniqueOrThrow({ where: { reviewFlagId: flag.reviewFlagId } });
+      const correction = { reviewNotes: 'Synthetic on-site investigation corrected the mistaken decision.', expectedUpdatedAt: flag.updatedAt.toISOString() };
+      const deniedCorrection = await request(app).post(`/api/incidents/v1/${report.incidentId}/review-flags/${flag.reviewFlagId}/correction`).set('Origin', 'http://localhost:3000').set('Cookie', cookie(assigned[0])).send(correction);
+      expect(deniedCorrection.status).toBe(403);
+      expect(deniedCorrection.body.message).toMatch(/main administrator/i);
+      expect((await CorrectIncidentFlagService(report.incidentId, flag.reviewFlagId, correction, main)).code).toBe(200);
+      for (const user of assigned) {
+        const data = (await read(user)).body.data.incident;
+        expect(data.reviewNotices).toMatchObject([{ status: 'DISMISSED', reviewNotes: correction.reviewNotes }]);
+        expect(data.reviewFlags).toEqual([]);
+      }
+      const privateRead = await read(citizen);
+      expect(privateRead.status).toBe(200);
+      expect(privateRead.body.data.incident).not.toHaveProperty('reviewNotices');
+      expect(privateRead.body.data.incident).not.toHaveProperty('reviewFlags');
+      const privateList = await request(app).get(`/api/incidents/v1/?includeReviewFlags=true&reportedBy=${randomUUID()}&department=MAIN`).set('Cookie', cookie(citizen));
+      expect(privateList.status).toBe(200);
+      expect(privateList.body.data.incidents).toHaveLength(1);
+      expect(privateList.body.data.incidents[0]).not.toHaveProperty('reviewNotices');
+      const unrelated = await incident(assigned[0]);
+      await prisma.incidentReviewFlag.create({ data: { incidentId: unrelated.incidentId, department: 'MAIN', flaggedBy: main.sub, reason: 'Synthetic private unassigned review reason.' } });
+      expect((await request(app).get(`/api/incidents/v1/${unrelated.incidentId}`).set('Cookie', cookie(assigned[1]))).status).toBe(403);
+      const excluded = await request(app).get('/api/incidents/v1/?includeReviewFlags=true&department=MAIN&limit=100').set('Cookie', cookie(assigned[1]));
+      expect(excluded.status).toBe(200);
+      expect(excluded.body.data.incidents.some((row: { incidentId: string }) => row.incidentId === unrelated.incidentId)).toBe(false);
+      expect(JSON.stringify(excluded.body)).not.toContain('private unassigned review reason');
+      const after = await prisma.incident.findUniqueOrThrow({ where: { incidentId: report.incidentId }, include: { serviceResponses: true } });
+      expect(after).toEqual(before);
+      expect(await prisma.notificationOutbox.count()).toBe(0);
+      expect(await prisma.assetCleanupJob.count()).toBe(0);
+      expect(events).toHaveLength(3);
+      for (const event of events) expect(Object.keys(event).sort()).toEqual(['type', 'entityId', 'occurredAt'].sort());
+    } finally { off(); }
+  }, 30000);
 });
