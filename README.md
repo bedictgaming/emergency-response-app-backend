@@ -13,6 +13,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for domain, validation, middleware, contr
 
 The API is served under `/api`. Liveness is available at `/healthz`; database readiness is at `/readyz`.
 
+Unit retirement: staff arrange vehicles and crews outside the app. Unit/equipment/dispatch routes return authenticated no-store 410; historical schema and records remain. Departments handle and resolve their own responses. Historical unit statuses no longer gate report disposition; unfinished incident tasks and Main-review/evidence/session safeguards remain. See [UNIT_RETIREMENT_RELEASE.md](UNIT_RETIREMENT_RELEASE.md) for release verification and boundaries. This entry supersedes older active-unit descriptions below.
+
 ## Quality commands
 
 - `npm run build` — TypeScript production build

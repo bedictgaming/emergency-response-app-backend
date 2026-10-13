@@ -1,7 +1,6 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { prisma } from "@/lib/prisma";
 import { enqueueAssetCleanup } from "@/lib/jobs";
-import { UnitStatus } from "@/generated/prisma";
 import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import type { JwtPayload } from "@/lib/jwt";
 import { isMainAdministrator } from "@/domain/permissions.policy";
@@ -35,25 +34,22 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
       if (!current) throw new WorkflowConflict("Incident was already removed");
       if (input.falseReport) requireConfirmedFalseReport(current, input.falseReport);
       else if (!['CLOSED', 'CANCELLED'].includes(current.status)) throw new WorkflowConflict("Incident status changed; close it before deletion");
-      if (current.incidentUnits.some(unit => unit.status !== "RETURNED") || current.tasks.some(task => task.status !== "DONE")) throw new WorkflowConflict("Return all assigned units and complete all tasks before deletion");
+      // Physical dispatch is outside this app. Historical statuses belong in
+      // the audit tombstone, not an actionable completion gate.
+      if (current.tasks.some(task => task.status !== "DONE")) throw new WorkflowConflict("Complete all incident tasks before deletion");
 
       for (const attachment of current.attachments) {
         if (attachment.publicId) await enqueueAssetCleanup(tx, attachment.publicId);
       }
 
-      const unitIds = [...new Set(current.incidentUnits.map(item => item.unitId))];
       await tx.alert.updateMany({ where: { incidentId: id }, data: { incidentId: null } });
       await tx.task.deleteMany({ where: { incidentId: id } });
       await tx.incidentUnit.deleteMany({ where: { incidentId: id } });
       await tx.attachment.deleteMany({ where: { incidentId: id } });
       await tx.incident.delete({ where: { incidentId: id } });
-      for (const unitId of unitIds) {
-        const active = await tx.incidentUnit.count({ where: { unitId, status: { not: "RETURNED" } } });
-        if (!active) await tx.unit.updateMany({ where: { unitId, status: UnitStatus.DEPLOYED }, data: { status: UnitStatus.AVAILABLE } });
-      }
       await tx.auditLog.create({ data: {
         actorId: actor.sub, action: "INCIDENT_DELETED", entityType: "Incident", entityId: id,
-        metadata: { title: current.title, status: current.status, reason, ...(input.falseReport && { confirmedFalseDisposition: true, confirmedReviewFlagId: input.falseReport.reviewFlagId }), attachmentCount: current.attachments.length, reviewFlags: current.reviewFlags.map(flag => ({ department: flag.department, reason: flag.reason, status: flag.status, reviewNotes: flag.reviewNotes })) },
+        metadata: { title: current.title, status: current.status, reason, ...(input.falseReport && { confirmedFalseDisposition: true, confirmedReviewFlagId: input.falseReport.reviewFlagId }), attachmentCount: current.attachments.length, retiredUnitAssignments: current.incidentUnits.map(item => ({ unitId: item.unitId, status: item.status })), reviewFlags: current.reviewFlags.map(flag => ({ department: flag.department, reason: flag.reason, status: flag.status, reviewNotes: flag.reviewNotes })) },
       } });
     }, { timeout: 20_000 });
 

@@ -1,33 +1,10 @@
-import { Router } from "express";
-import { IncidentUnitController } from "@/controllers/incident-unit.controller";
-import { validateSchema } from "@/middleware/validate.schema";
-import { updateIncidentUnitSchema } from "@/validation/incident-unit";
-import { AuthMiddleware } from "@/middleware/auth-middleware";
-import { permittedRole } from "@/middleware/rbac-middleware";
-import { Role } from "@/generated/prisma";
-import { requireIncidentUnitDepartment } from "@/middleware/operational-access-middleware";
+import { Router } from 'express';
+import { AuthMiddleware } from '@/middleware/auth-middleware';
+import { permittedRole } from '@/middleware/rbac-middleware';
+import { Role } from '@/generated/prisma';
+import { retiredUnitWorkflow } from '@/middleware/retired-unit-workflow';
 
-// Initialize
+// Authenticated compatibility boundary only; historical schema/data remain.
 const router = Router();
-const incidentUnitController = new IncidentUnitController();
-const authMiddleware = new AuthMiddleware();
-
-router.use(authMiddleware.execute);
-
-// Authenticated Routes
-router.get("/v1/", permittedRole([Role.ADMIN, Role.DISPATCHER]), incidentUnitController.getAll);
-router.get("/v1/:id", permittedRole([Role.ADMIN, Role.DISPATCHER]), requireIncidentUnitDepartment, incidentUnitController.getById);
-
-// Update dispatch status/role
-router.put(
-  "/v1/:id",
-  permittedRole([Role.ADMIN, Role.DISPATCHER]),
-  requireIncidentUnitDepartment,
-  validateSchema(updateIncidentUnitSchema),
-  incidentUnitController.update
-);
-
-// Delete/unassign dispatch record
-router.delete("/v1/:id", permittedRole([Role.ADMIN, Role.DISPATCHER]), requireIncidentUnitDepartment, incidentUnitController.remove);
-
+router.use(new AuthMiddleware().execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), retiredUnitWorkflow);
 export default router;

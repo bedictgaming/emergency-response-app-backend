@@ -55,7 +55,6 @@ describe('Main confirmed-false disposition', () => {
       { reviewFlags: [{ reviewFlagId: 'flag', incidentId: 'report', status: 'DISMISSED', updatedAt: date }] },
       { updatedAt: new Date(date.getTime() + 1) },
       { mergedIntoId: 'other' },
-      { incidentUnits: [{ unitId: 'unit', status: 'ON_SCENE' }] },
       { tasks: [{ status: 'IN_PROGRESS' }] },
     ])(action + ' denies stale, unconfirmed or outstanding-work targets without side effects', async override => {
       const { tx } = fixture(override);
@@ -81,6 +80,16 @@ describe('Main confirmed-false disposition', () => {
     const { tx } = fixture({ status: 'CANCELLED', updatedAt: new Date(date.getTime() + 1) });
     expect((await run('cancel')).code).toBe(200);
     expect(tx.incident.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+  it.each(['cancel', 'delete'])('%s no longer requires a fabricated Returned status for historical dispatches', async action => {
+    const { tx } = fixture({ incidentUnits: [{ unitId: 'unit', status: 'ON_SCENE' }] });
+    expect((await run(action)).code).toBe(200);
+    expect(tx.unit.updateMany).not.toHaveBeenCalled();
+    expect(tx.incidentUnit.count).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      metadata: expect.objectContaining({ retiredUnitAssignments: [{ unitId: 'unit', status: 'ON_SCENE' }] }),
+    }) }));
+    if (action === 'cancel') expect(tx.incidentUnit.deleteMany).not.toHaveBeenCalled();
   });
   it('does not provide unversioned early deletion', async () => {
     fixture(); expect((await DeleteIncidentService('report', main, { reason, confirmation: 'DELETE' })).code).toBe(409);

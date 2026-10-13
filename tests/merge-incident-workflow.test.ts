@@ -35,11 +35,16 @@ describe("merge workflow", () => {
     }));
   });
 
-  it("refuses to merge a report with active responder work", async () => {
+  it("refuses to merge a report with active incident tasks", async () => {
     mocks.taskCount.mockResolvedValue(1);
     const result = await MergeIncidentService(sourceId, targetId, "Duplicate", actor);
     expect(result.code).toBe(409);
     expect(mocks.updateIncident).not.toHaveBeenCalled();
+  });
+  it('does not gate merging on a retired dispatch status or rewrite it', async () => {
+    mocks.dispatchCount.mockResolvedValue(1);
+    expect((await MergeIncidentService(sourceId, targetId, 'Duplicate', actor)).code).toBe(200);
+    expect(mocks.dispatchCount).not.toHaveBeenCalled();
   });
 
   it("refuses a merge across different response services", async () => {

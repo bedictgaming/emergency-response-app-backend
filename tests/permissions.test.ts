@@ -17,6 +17,7 @@ describe("server-derived RBAC permissions", () => {
     const permissions = permissionsForActor({ role: Role.ADMIN, department: Department.MEDICAL, isMainAdmin: false });
     expect(permissions).toContain(Permission.IncidentManageDepartment);
     expect(permissions).toContain(Permission.AnalyticsReadDepartment);
+    expect(permissions).not.toContain(Permission.DispatchManageDepartment);
     expect(permissions).not.toContain(Permission.IncidentManageAll);
     expect(permissions).not.toContain(Permission.UserManage);
   });

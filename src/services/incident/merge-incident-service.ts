@@ -32,12 +32,9 @@ export async function MergeIncidentService(sourceIncidentId: string, targetIncid
       if (!sourceServices.length || !sameResponseServices(sourceServices, targetServices)) {
         throw new WorkflowConflict("Reports with different response services cannot be merged");
       }
-      const [activeTasks, activeDispatches] = await Promise.all([
-        tx.task.count({ where: { incidentId: sourceIncidentId, status: { not: "DONE" } } }),
-        tx.incidentUnit.count({ where: { incidentId: sourceIncidentId, status: { not: "RETURNED" } } }),
-      ]);
-      if (activeTasks || activeDispatches) {
-        throw new WorkflowConflict("Complete or reassign active tasks and dispatches before merging this report");
+      const activeTasks = await tx.task.count({ where: { incidentId: sourceIncidentId, status: { not: "DONE" } } });
+      if (activeTasks) {
+        throw new WorkflowConflict("Complete or reassign active incident tasks before merging this report");
       }
       const mergedAt = new Date();
       const updated = await tx.incident.update({ where: { incidentId: sourceIncidentId }, data: {

@@ -22,15 +22,16 @@ export async function CancelFalseIncidentService(id: string, input: FalseReportV
       const flag = requireConfirmedFalseReport(current, input, retry);
       if (retry) return { incidentId: id, status: current.status };
       if (current.status === 'CLOSED') throw new WorkflowConflict('This report is already closed. No cancellation is needed.');
-      if (current.incidentUnits.some(unit => unit.status !== 'RETURNED') || current.tasks.some(task => task.status !== 'DONE'))
-        throw new WorkflowConflict('Return all assigned units and complete outstanding tasks before cancellation. Department Resolve is not required.');
+      if (current.tasks.some(task => task.status !== 'DONE'))
+        throw new WorkflowConflict('Complete outstanding incident tasks before cancellation. Department Resolve is not required.');
       await tx.incident.update({ where: { incidentId: id }, data: { status: 'CANCELLED' } });
       // Retain genuine completed response history. Unfinished response rows are
       // explicitly cancelled, not falsely marked RESOLVED by Main Admin.
       await tx.incidentServiceResponse.updateMany({ where: { incidentId: id, status: 'RESPONDING' }, data: { status: 'CANCELLED' } });
       await tx.auditLog.create({ data: { actorId: actor.sub, action: 'INCIDENT_CANCELLED_FALSE', entityType: 'Incident', entityId: id,
         metadata: { reason, previousStatus: current.status, reviewFlagId: flag.reviewFlagId, reviewUpdatedAt: flag.updatedAt.toISOString(), reviewNotes: flag.reviewNotes,
-          previousResponses: current.serviceResponses.map(row => ({ service: row.service, status: row.status })) } } });
+          previousResponses: current.serviceResponses.map(row => ({ service: row.service, status: row.status })),
+          retiredUnitAssignments: current.incidentUnits.map(row => ({ unitId: row.unitId, status: row.status })) } } });
       return { incidentId: id, status: 'CANCELLED' as const };
     }, { timeout: 20000 });
     if (!result) return { code: 404, status: 'error', message: 'Incident not found' };

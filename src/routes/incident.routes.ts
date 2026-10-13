@@ -2,12 +2,10 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { IncidentController } from "@/controllers/incident.controller";
 import { TaskController } from "@/controllers/task.controller";
-import { IncidentUnitController } from "@/controllers/incident-unit.controller";
 import { AttachmentController } from "@/controllers/attachment.controller";
 import { validateSchema } from "@/middleware/validate.schema";
 import { checkNearbyIncidentSchema, createIncidentSchema, mergeIncidentSchema, updateIncidentSchema, updateServiceResponseSchema, verifyIncidentSchema } from "@/validation/incident";
 import { createTaskSchema } from "@/validation/task";
-import { dispatchUnitSchema } from "@/validation/incident-unit";
 import { createAttachmentSchema } from "@/validation/attachment";
 import { listIncidentsSchema } from "@/validation/incident/list-incidents.schema";
 import { AuthMiddleware } from "@/middleware/auth-middleware";
@@ -15,7 +13,8 @@ import { permittedRole, requireAnyPermission, requireMainAdmin, requirePermissio
 import { Role } from "@/generated/prisma";
 import { Permission } from "@/domain/permissions.policy";
 import { requireIncidentAccess } from "@/middleware/incident-access-middleware";
-import { requireTargetResponderDepartment, requireTargetUnitDepartment, requireUnitDepartment } from "@/middleware/operational-access-middleware";
+import { requireTargetResponderDepartment } from "@/middleware/operational-access-middleware";
+import { retiredUnitWorkflow } from '@/middleware/retired-unit-workflow';
 import { cancelFalseIncidentSchema, correctIncidentFlagSchema, deleteIncidentSchema, flagIncidentSchema, listReviewFlagsSchema, reviewIncidentFlagSchema } from "@/validation/incident/review-incident.schema";
 import { z } from 'zod';
 import { ResponseService } from '@/generated/prisma';
@@ -26,7 +25,6 @@ import { acknowledgeIncidentAttention, listIncidentAttention } from '@/services/
 const router = Router();
 const incidentController = new IncidentController();
 const taskController = new TaskController();
-const incidentUnitController = new IncidentUnitController();
 const attachmentController = new AttachmentController();
 const authMiddleware = new AuthMiddleware();
 const nearbyCheckLimiter = rateLimit({
@@ -133,35 +131,10 @@ router.patch(
   incidentController.verify,
 );
 
-// Nested Unit Dispatching Routes — POST /incidents/v1/:incidentId/units
-router.post(
-  "/v1/:incidentId/units",
-  authMiddleware.execute,
-  requirePermission(Permission.DispatchManageDepartment),
-  requireIncidentAccess,
-  validateSchema(dispatchUnitSchema),
-  requireTargetUnitDepartment,
-  incidentUnitController.dispatch
-);
-
-// Nested Unit Dispatching Routes — GET /incidents/v1/:incidentId/units
-router.get(
-  "/v1/:incidentId/units",
-  authMiddleware.execute,
-  permittedRole([Role.ADMIN, Role.DISPATCHER]),
-  requireIncidentAccess,
-  incidentUnitController.getAll
-);
-
-// Nested Unit Dispatching Routes — DELETE /incidents/v1/:incidentId/units/:unitId
-router.delete(
-  "/v1/:incidentId/units/:unitId",
-  authMiddleware.execute,
-  requirePermission(Permission.DispatchManageDepartment),
-  requireIncidentAccess,
-  requireUnitDepartment,
-  incidentUnitController.removeByPair
-);
+// Retired aliases retain auth and report scope; historical detail DTOs remain.
+for (const path of ['/v1/:incidentId/units', '/v1/:incidentId/units/:unitId']) {
+  router.all(path, authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), requireIncidentAccess, retiredUnitWorkflow);
+}
 
 // Nested Task Routes — POST /incidents/v1/:incidentId/tasks
 router.post(

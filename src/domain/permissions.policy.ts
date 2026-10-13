@@ -58,7 +58,6 @@ export function permissionsForActor(actor: PermissionActor): PermissionName[] {
     Permission.IncidentReadDepartment,
     Permission.IncidentManageDepartment,
     Permission.EvidenceReadDepartment,
-    Permission.DispatchManageDepartment,
     Permission.TaskManageDepartment,
     Permission.AlertSendDepartment,
     Permission.AnalyticsReadDepartment,

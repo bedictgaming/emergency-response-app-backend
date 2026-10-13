@@ -46,7 +46,8 @@ describe('safe incident deletion', () => {
     expect(tx.incidentUnit.deleteMany).toHaveBeenCalled();
     expect(tx.attachment.deleteMany).toHaveBeenCalled();
     expect(tx.incident.delete).toHaveBeenCalled();
-    expect(tx.unit.updateMany).toHaveBeenCalled();
+    expect(tx.unit.updateMany).not.toHaveBeenCalled();
+    expect(tx.incidentUnit.count).not.toHaveBeenCalled();
     expect(tx.auditLog.create).toHaveBeenCalled();
   });
 
@@ -76,7 +77,7 @@ describe('safe incident deletion', () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
-  it.each([{ incidentUnits: [{ unitId: 'unit', status: 'ON_SCENE' }], tasks: [] }, { incidentUnits: [], tasks: [{ status: 'IN_PROGRESS' }] }])('preserves evidence while operational work remains', async (work) => {
+  it.each([{ incidentUnits: [], tasks: [{ status: 'IN_PROGRESS' }] }])('preserves evidence while incident task work remains', async (work) => {
     vi.spyOn(IncidentRepository.prototype, 'findById').mockResolvedValue(closed as never);
     const deletion = vi.fn();
     mocks.transaction.mockImplementation(callback => callback({ $queryRaw: vi.fn(), user: operationalUserMock(main), incident: { findUnique: vi.fn().mockResolvedValue({ ...closed, ...work, attachments: [{ publicId: 'proof' }], reviewFlags: [] }), delete: deletion } }));
