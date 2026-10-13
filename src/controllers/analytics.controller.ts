@@ -6,7 +6,7 @@ import {
   GetDashboardAnalyticsService,
 } from "@/services/analytics";
 import type { JwtPayload } from "@/lib/jwt";
-import { departmentIncidentScope } from "@/lib/department-access";
+import { departmentIncidentScope } from "@/domain/department-access.policy";
 
 export class AnalyticsController {
   private scope(req: Request) { return departmentIncidentScope(req.user as JwtPayload); }

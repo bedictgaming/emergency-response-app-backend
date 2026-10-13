@@ -3,8 +3,8 @@ import { UserRepository } from "@/repositories/user.repository";
 import { OAuthAccountRepository } from "@/repositories/oauth-account.repository";
 import { prisma } from "@/lib/prisma";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
-import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
-import { googleEmail, googleSubject } from "@/lib/google-identity";
+import { hasValidOperationalAssignment, withPermissions } from "@/domain/permissions.policy";
+import { googleEmail, googleSubject } from "@/domain/google-identity.policy";
 
 const passwordFirst = () => ({ code: 409, status: "error", errorCode: "oauth_link_password_required",
   message: "Please log in with your password first, then link Google in Settings." });

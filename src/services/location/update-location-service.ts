@@ -1,5 +1,5 @@
 import { LocationRepository } from "@/repositories/location.repository";
-import { UpdateLocationInput } from "@/schema/location/update-location.schema";
+import { UpdateLocationInput } from "@/validation/location/update-location.schema";
 
 const locationRepository = new LocationRepository();
 

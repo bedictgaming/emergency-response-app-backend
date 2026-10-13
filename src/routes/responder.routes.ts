@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { AuthMiddleware } from '@/middlewares/auth-middleware';
-import { permittedRole } from '@/middlewares/rbac-middleware';
+import { AuthMiddleware } from '@/middleware/auth-middleware';
+import { permittedRole } from '@/middleware/rbac-middleware';
 import { Role } from '@/generated/prisma';
 
 const router = Router();

@@ -4,8 +4,8 @@ import type { Prisma, GoogleLinkIntent } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { ENV } from "@/config/env";
 import type { JwtPayload } from "@/lib/jwt";
-import { hasValidOperationalAssignment } from "@/lib/permissions";
-import { googleEmail, googleSubject } from "@/lib/google-identity";
+import { hasValidOperationalAssignment } from "@/domain/permissions.policy";
+import { googleEmail, googleSubject } from "@/domain/google-identity.policy";
 import { verifyPassword, PasswordProcessingBusy } from "@/utils/password";
 import { trustedOrigins } from "@/lib/public-origin";
 

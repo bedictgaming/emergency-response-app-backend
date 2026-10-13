@@ -14,8 +14,8 @@ vi.mock("@/lib/jwt", () => ({
   verifyAccessToken: mocks.verifyAccessToken,
 }));
 
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole } from "@/middlewares/rbac-middleware";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole } from "@/middleware/rbac-middleware";
 
 function responseMock() {
   const response = {

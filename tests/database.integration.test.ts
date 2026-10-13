@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { AnalyticsRepository } from "@/repositories/analytics.repository";
 import { AlertRepository } from "@/repositories/alert.repository";
-import { nearbyIncidentCandidateQuery } from "@/lib/incident-proximity";
+import { nearbyIncidentCandidateQuery } from "@/domain/incident-proximity.policy";
 import { randomUUID } from "node:crypto";
 
 describe.runIf(process.env.RUN_DATABASE_TESTS === "1")("database integration", () => {

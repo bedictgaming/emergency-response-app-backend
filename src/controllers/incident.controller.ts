@@ -12,11 +12,11 @@ import {
   MergeIncidentService,
 } from "@/services/incident";
 import { Department, IncidentStatus, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
-import { departmentIncidentScope, departmentService } from "@/lib/department-access";
-import { isMainAdministrator } from "@/lib/permissions";
+import { departmentIncidentScope, departmentService } from "@/domain/department-access.policy";
+import { isMainAdministrator } from "@/domain/permissions.policy";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
 import { CorrectIncidentFlagService, FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
-import { reviewNoticeDepartmentFor } from '@/lib/incident-review-notices';
+import { reviewNoticeDepartmentFor } from '@/domain/incident-review-notices.policy';
 import { CancelFalseIncidentService } from '@/services/incident/cancel-false-incident-service';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };

@@ -1,5 +1,5 @@
 import { AlertRepository } from "@/repositories/alert.repository";
-import { CreateAlertInput } from "@/schema/alert/create-alert.schema";
+import { CreateAlertInput } from "@/validation/alert/create-alert.schema";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
 import { enqueueNotification } from "@/lib/jobs";

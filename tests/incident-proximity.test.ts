@@ -5,7 +5,7 @@ import {
   findNearestIncidentWithinRadius,
   nearbyIncidentCandidateQuery,
   nearbyIncidentLockKeys,
-} from "@/lib/incident-proximity";
+} from "@/domain/incident-proximity.policy";
 
 const origin = { latitude: 10.251, longitude: 123.949 };
 

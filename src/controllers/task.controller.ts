@@ -8,7 +8,7 @@ import {
   DeleteTaskService,
 } from "@/services/task";
 import { TaskStatus, TaskPriority } from "@/generated/prisma";
-import { departmentTaskScope } from "@/lib/department-access";
+import { departmentTaskScope } from "@/domain/department-access.policy";
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 

@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { AuthMiddleware } from '@/middlewares/auth-middleware';
+import { AuthMiddleware } from '@/middleware/auth-middleware';
 import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
 import { canReceiveEvent } from '@/lib/event-access';
 import { prisma } from '@/lib/prisma';

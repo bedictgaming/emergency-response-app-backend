@@ -1,7 +1,7 @@
 import { UnitRepository } from "@/repositories/unit.repository";
-import { UpdateUnitInput } from "@/schema/unit/update-unit.schema";
+import { UpdateUnitInput } from "@/validation/unit/update-unit.schema";
 import { prisma } from "@/lib/prisma";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 
 const unitRepository = new UnitRepository();
 

@@ -1,5 +1,5 @@
 import { UnitRepository } from "@/repositories/unit.repository";
-import { CreateUnitInput } from "@/schema/unit/create-unit.schema";
+import { CreateUnitInput } from "@/validation/unit/create-unit.schema";
 
 const unitRepository = new UnitRepository();
 

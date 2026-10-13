@@ -21,6 +21,14 @@ interface AttachmentFilters {
 }
 
 export class AttachmentRepository {
+  // Private metadata for delivery services only; never a public DTO.
+  async findStorageMetadata(id: string) {
+    return prisma.attachment.findUnique({
+      where: { attachmentId: id },
+      select: { publicId: true, format: true },
+    });
+  }
+
   async findAll(filters?: AttachmentFilters) {
     return await prisma.attachment.findMany({
       where: {

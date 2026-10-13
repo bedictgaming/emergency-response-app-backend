@@ -7,7 +7,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: {
   incident: { findMany: mocks.findMany, findUnique: mocks.findUnique, groupBy: mocks.groupBy },
   incidentServiceResponse: { groupBy: mocks.serviceGroupBy },
 } }));
-import { presentIncidentReviews, reviewNoticeDepartmentFor, reviewNoticeIncidentScope } from '@/lib/incident-review-notices';
+import { presentIncidentReviews, reviewNoticeDepartmentFor, reviewNoticeIncidentScope } from '@/domain/incident-review-notices.policy';
 import { reviewDepartmentFor } from '@/services/incident/review-incident-service';
 import { IncidentRepository } from '@/repositories/incident.repository';
 import { GetAllIncidentsService } from '@/services/incident/get-all-incidents-service';

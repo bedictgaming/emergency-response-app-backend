@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { AlertController } from "@/controllers/alert.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { createAlertSchema } from "@/schema/alert";
-import { listAlertsSchema, readAlertSchema } from "@/schema/alert/read-alert.schema";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole, requireMainAdmin } from "@/middlewares/rbac-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
+import { createAlertSchema } from "@/validation/alert";
+import { listAlertsSchema, readAlertSchema } from "@/validation/alert/read-alert.schema";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole, requireMainAdmin } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
-import { requireTargetIncidentDepartment } from "@/middlewares/operational-access-middleware";
+import { requireTargetIncidentDepartment } from "@/middleware/operational-access-middleware";
 
 // Initialize
 const router = Router();

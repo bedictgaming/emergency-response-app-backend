@@ -2,7 +2,7 @@ import jwt, { SignOptions } from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 import { ENV } from "@/config/env";
 import type { Department } from "@/generated/prisma";
-import type { PermissionName } from "@/lib/permissions";
+import type { PermissionName } from "@/domain/permissions.policy";
 
 export type JwtPayload = { sub: string; role: string; type: "access" | "refresh"; exp?: number; sessionId?: string; department?: Department | null; isMainAdmin?: boolean; permissions?: PermissionName[] };
 const jwtSecret = ENV.JWT_SECRET;

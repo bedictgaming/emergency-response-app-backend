@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { AnalyticsController } from "@/controllers/analytics.controller";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { requirePermission } from "@/middlewares/rbac-middleware";
-import { Permission } from "@/lib/permissions";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { requirePermission } from "@/middleware/rbac-middleware";
+import { Permission } from "@/domain/permissions.policy";
 
 const router = Router();
 const analyticsController = new AnalyticsController();

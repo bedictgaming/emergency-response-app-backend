@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { UnitController } from "@/controllers/unit.controller";
 import { ResourceController } from "@/controllers/resource.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { createUnitSchema, updateUnitSchema } from "@/schema/unit";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole } from "@/middlewares/rbac-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
+import { createUnitSchema, updateUnitSchema } from "@/validation/unit";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
-import { requireTargetUnitDepartment, requireUnitDepartment } from "@/middlewares/operational-access-middleware";
+import { requireTargetUnitDepartment, requireUnitDepartment } from "@/middleware/operational-access-middleware";
 
 // Initialize
 const router = Router();

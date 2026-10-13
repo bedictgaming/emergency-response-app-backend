@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { TaskController } from "@/controllers/task.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { updateTaskSchema } from "@/schema/task";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole } from "@/middlewares/rbac-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
+import { updateTaskSchema } from "@/validation/task";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
-import { requireTargetResponderDepartment, requireTaskDepartment } from "@/middlewares/operational-access-middleware";
+import { requireTargetResponderDepartment, requireTaskDepartment } from "@/middleware/operational-access-middleware";
 
 // Initialize
 const router = Router();

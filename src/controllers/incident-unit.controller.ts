@@ -9,7 +9,7 @@ import {
 } from "@/services/incident-unit";
 import { IncidentUnitStatus } from "@/generated/prisma";
 import { JwtPayload } from "@/lib/jwt";
-import { departmentDispatchScope } from "@/lib/department-access";
+import { departmentDispatchScope } from "@/domain/department-access.policy";
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 

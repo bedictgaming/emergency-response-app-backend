@@ -1,8 +1,8 @@
 import { Department, Prisma, ResponseService } from '@/generated/prisma';
 import { prisma } from '@/lib/prisma';
 import type { JwtPayload } from '@/lib/jwt';
-import { departmentIncidentScope, departmentService } from '@/lib/department-access';
-import { isMainAdministrator } from '@/lib/permissions';
+import { departmentIncidentScope, departmentService } from '@/domain/department-access.policy';
+import { isMainAdministrator } from '@/domain/permissions.policy';
 import { publishEmergencyEvent } from '@/lib/events';
 
 export function attentionScope(actor: JwtPayload, requested?: ResponseService) {

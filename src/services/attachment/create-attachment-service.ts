@@ -1,8 +1,8 @@
 import { AttachmentRepository } from "@/repositories/attachment.repository";
-import { CreateAttachmentInput } from "@/schema/attachment/create-attachment.schema";
+import { CreateAttachmentInput } from "@/validation/attachment/create-attachment.schema";
 import { verifyUploadedAsset } from "@/lib/cloudinary";
 import { prisma } from "@/lib/prisma";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import { enqueueAssetCleanup } from "@/lib/jobs";
 import { protectAttachment } from "@/lib/evidence";
 

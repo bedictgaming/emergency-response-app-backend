@@ -1,8 +1,8 @@
 import { TaskRepository } from "@/repositories/task.repository";
-import { UpdateTaskInput } from "@/schema/task/update-task.schema";
+import { UpdateTaskInput } from "@/validation/task/update-task.schema";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
-import { isWorkflowConflict } from "@/lib/workflow-error";
+import { isWorkflowConflict } from "@/domain/workflow-error.policy";
 
 const taskRepository = new TaskRepository();
 

@@ -8,7 +8,7 @@ import {
 } from "@/services/unit";
 import { UnitStatus } from "@/generated/prisma";
 import { JwtPayload } from "@/lib/jwt";
-import { departmentUnitScope } from "@/lib/department-access";
+import { departmentUnitScope } from "@/domain/department-access.policy";
 
 export class UnitController {
   // GET /units/v1/

@@ -1,5 +1,5 @@
 import { IncidentTypeRepository } from "@/repositories/incident-type.repository";
-import { UpdateIncidentTypeInput } from "@/schema/incident-type/update-incident-type.schema";
+import { UpdateIncidentTypeInput } from "@/validation/incident-type/update-incident-type.schema";
 
 const incidentTypeRepository = new IncidentTypeRepository();
 

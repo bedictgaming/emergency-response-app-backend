@@ -1,5 +1,5 @@
 import { BarangayRepository } from "@/repositories/barangay.repository";
-import { UpdateBarangayInput } from "@/schema/barangay/update-barangay.schema";
+import { UpdateBarangayInput } from "@/validation/barangay/update-barangay.schema";
 
 const barangayRepository = new BarangayRepository();
 

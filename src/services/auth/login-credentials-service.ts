@@ -2,7 +2,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { TokenRepository } from "@/repositories/token.repository";
 import { verifyPassword, PasswordProcessingBusy } from "@/utils/password";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
-import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
+import { hasValidOperationalAssignment, withPermissions } from "@/domain/permissions.policy";
 
 export async function LoginCredentialsService(email: string, password: string) {
   const userRepository = new UserRepository();

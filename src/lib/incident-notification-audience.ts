@@ -1,5 +1,5 @@
 import type { Prisma, ResponseService } from '@/generated/prisma';
-import { unitTypeSupportsService } from '@/lib/response-services';
+import { unitTypeSupportsService } from '@/domain/response-services.policy';
 export async function incidentNotificationAudience(tx: Prisma.TransactionClient, services: ResponseService[]) {
   const [staff, responders] = await Promise.all([
     tx.user.findMany({ where: { status: 'ACTIVE', role: { in: ['ADMIN','DISPATCHER'] }, OR: [

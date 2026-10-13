@@ -1,14 +1,14 @@
 import { IncidentUnitRepository } from "@/repositories/incident-unit.repository";
-import { DispatchUnitInput } from "@/schema/incident-unit/dispatch-unit.schema";
+import { DispatchUnitInput } from "@/validation/incident-unit/dispatch-unit.schema";
 import { IncidentUnitStatus, UnitStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
 import { enqueueNotification } from "@/lib/jobs";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import type { JwtPayload } from "@/lib/jwt";
-import { departmentService } from "@/lib/department-access";
-import { unitTypeSupportsService } from "@/lib/response-services";
-import { isMainAdministrator } from "@/lib/permissions";
+import { departmentService } from "@/domain/department-access.policy";
+import { unitTypeSupportsService } from "@/domain/response-services.policy";
+import { isMainAdministrator } from "@/domain/permissions.policy";
 
 const incidentUnitRepository = new IncidentUnitRepository();
 

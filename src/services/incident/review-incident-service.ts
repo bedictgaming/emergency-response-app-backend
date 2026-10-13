@@ -1,10 +1,10 @@
 import { Department, IncidentReviewStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import type { JwtPayload } from "@/lib/jwt";
-import { departmentIncidentScope } from "@/lib/department-access";
-import { hasValidOperationalAssignment, isMainAdministrator } from "@/lib/permissions";
+import { departmentIncidentScope } from "@/domain/department-access.policy";
+import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/permissions.policy";
 import { publishEmergencyEvent } from "@/lib/events";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 
 export function reviewDepartmentFor(actor: JwtPayload): Department | "ALL" | undefined {

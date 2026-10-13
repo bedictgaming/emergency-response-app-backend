@@ -6,7 +6,7 @@ import {
   CreateAttachmentService,
   DeleteAttachmentService,
 } from "@/services/attachment";
-import { createEvidenceDownloadUrl } from "@/lib/cloudinary";
+import { GetEvidenceDeliveryService } from '@/services/attachment/get-evidence-delivery-service';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -30,42 +30,20 @@ export class AttachmentController {
   public content = async (req: Request, res: Response) => {
     const id = req.params.id as string;
     const user = (req as AuthenticatedRequest).user!;
-    const result = await GetAttachmentService(id, user.sub, user.role);
+    const result = await GetEvidenceDeliveryService(id, user.sub, user.role);
     if (result.code !== 200 || !result.data) return res.status(result.code).json(result);
-    const attachment = result.data.attachment as unknown as { publicId?: string; format?: string };
-    // Fetch the private storage identifiers only after the service-level ownership check.
-    const record = await (await import("@/lib/prisma")).prisma.attachment.findUnique({
-      where: { attachmentId: id }, select: { publicId: true, format: true },
-    });
-    if (!record?.publicId || !record.format) return res.status(404).json({ code: 404, status: "error", message: "Evidence asset is unavailable" });
-    return res.redirect(302, createEvidenceDownloadUrl(record.publicId, record.format));
+    return res.redirect(302, result.data.url);
   };
 
   // GET /attachments/v1/:id/access-url - returns a short-lived URL after authorization.
-  // Browser <img> elements cannot attach our Bearer token, so the frontend first
-  // calls this authenticated endpoint and then renders the temporary storage URL.
+  // The cookie-authenticated frontend obtains a fresh URL before rendering it;
+  // expired storage links and raw private identifiers are never persisted.
   public accessUrl = async (req: Request, res: Response) => {
     const id = req.params.id as string;
     const user = (req as AuthenticatedRequest).user!;
-    const result = await GetAttachmentService(id, user.sub, user.role);
+    const result = await GetEvidenceDeliveryService(id, user.sub, user.role);
     if (result.code !== 200 || !result.data) return res.status(result.code).json(result);
-
-    const record = await (await import("@/lib/prisma")).prisma.attachment.findUnique({
-      where: { attachmentId: id },
-      select: { publicId: true, format: true },
-    });
-    if (!record?.publicId || !record.format) {
-      return res.status(404).json({ code: 404, status: "error", message: "Evidence asset is unavailable" });
-    }
-
-    return res.status(200).json({
-      code: 200,
-      status: "success",
-      data: {
-        url: createEvidenceDownloadUrl(record.publicId, record.format),
-        expiresInSeconds: 60,
-      },
-    });
+    return res.status(200).json(result);
   };
 
   // POST /incidents/v1/:incidentId/attachments

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { VerificationStatus } from "@/generated/prisma";
-import { VerifyIncidentInput } from "@/schema/incident/verify-incident.schema";
+import { VerifyIncidentInput } from "@/validation/incident/verify-incident.schema";
 import { publishEmergencyEvent } from "@/lib/events";
 import { enqueueNotification } from "@/lib/jobs";
 import { protectIncidentEvidence } from "@/lib/evidence";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Department, Role } from "@/generated/prisma";
-import { Permission, hasValidOperationalAssignment, permissionsForActor } from "@/lib/permissions";
-import { requireAnyPermission, requirePermission } from "@/middlewares/rbac-middleware";
-import { updateUserRoleSchema } from "@/schema/user/update-user-role.schema";
+import { Permission, hasValidOperationalAssignment, permissionsForActor } from "@/domain/permissions.policy";
+import { requireAnyPermission, requirePermission } from "@/middleware/rbac-middleware";
+import { updateUserRoleSchema } from "@/validation/user/update-user-role.schema";
 
 describe("server-derived RBAC permissions", () => {
   it("keeps citizens restricted to their own reports and evidence", () => {

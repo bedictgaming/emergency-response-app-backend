@@ -1,5 +1,5 @@
 import { Department, Role } from "@/generated/prisma";
-import { isMainAdministrator } from '@/lib/permissions';
+import { isMainAdministrator } from '@/domain/permissions.policy';
 import { ensureMainAdministratorRemains, UserAdministrationError, userAdministrationFailure, withUserAdministration } from '@/lib/user-administration';
 
 export const UpdateUserRoleService = async (id: string, role: Role, actorId?: string, department?: Department | null, isMainAdmin = false) => {

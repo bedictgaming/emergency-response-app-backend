@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { AttachmentController } from "@/controllers/attachment.controller";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { requireAttachmentDepartment } from "@/middlewares/operational-access-middleware";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { requireAttachmentDepartment } from "@/middleware/operational-access-middleware";
 
 // Initialize
 const router = Router();

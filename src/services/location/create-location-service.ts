@@ -1,5 +1,5 @@
 import { LocationRepository } from "@/repositories/location.repository";
-import { CreateLocationInput } from "@/schema/location/create-location.schema";
+import { CreateLocationInput } from "@/validation/location/create-location.schema";
 
 const locationRepository = new LocationRepository();
 

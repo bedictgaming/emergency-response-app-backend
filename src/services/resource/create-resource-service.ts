@@ -1,5 +1,5 @@
 import { ResourceRepository } from "@/repositories/resource.repository";
-import { CreateResourceInput } from "@/schema/resource/create-resource.schema";
+import { CreateResourceInput } from "@/validation/resource/create-resource.schema";
 
 const resourceRepository = new ResourceRepository();
 

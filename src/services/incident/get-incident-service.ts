@@ -1,7 +1,7 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { protectIncidentEvidence } from "@/lib/evidence";
 import type { Department } from "@/generated/prisma";
-import { presentIncidentReviews, type ReviewNoticeScope } from '@/lib/incident-review-notices';
+import { presentIncidentReviews, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
 
 const incidentRepository = new IncidentRepository();
 

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { responderIncidentScope } from '@/lib/incident-scope';
-import { reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/lib/incident-review-notices';
+import { reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
 
 interface CreateIncidentData {
   title: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { departmentDispatchScope, departmentIncidentScope, departmentService, departmentTaskScope, departmentUnitScope } from "@/lib/department-access";
+import { departmentDispatchScope, departmentIncidentScope, departmentService, departmentTaskScope, departmentUnitScope } from "@/domain/department-access.policy";
 
 describe("department access scopes", () => {
   it("fails closed when an operational account has no explicit department", () => {

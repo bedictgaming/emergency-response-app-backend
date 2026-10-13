@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { verifyIncidentSchema } from '@/schema/incident/verify-incident.schema';
+import { verifyIncidentSchema } from '@/validation/incident/verify-incident.schema';
 
 const id = 'b88dc364-68a7-4f44-9755-ff86d144343b';
 

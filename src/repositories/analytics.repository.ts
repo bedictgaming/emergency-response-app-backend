@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { IncidentStatus, Prisma } from "@/generated/prisma";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
-import { verifiedAnalyticsEligibility } from '@/lib/verified-analytics';
+import { verifiedAnalyticsEligibility } from '@/domain/verified-analytics.policy';
 
 export interface IncidentsByBarangayFilters {
   from?: Date;

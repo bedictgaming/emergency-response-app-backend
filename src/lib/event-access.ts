@@ -1,8 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import type { JwtPayload } from '@/lib/jwt';
 import type { EmergencyEvent } from '@/lib/events';
-import { departmentDispatchScope, departmentIncidentScope, departmentTaskScope } from '@/lib/department-access';
-import { isMainAdministrator } from '@/lib/permissions';
+import { departmentDispatchScope, departmentIncidentScope, departmentTaskScope } from '@/domain/department-access.policy';
+import { isMainAdministrator } from '@/domain/permissions.policy';
 
 export async function canReceiveEvent(actor: JwtPayload, event: EmergencyEvent) {
   if (event.type === 'alert.created') return true;

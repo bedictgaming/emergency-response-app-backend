@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { findMatchingNearbyIncident, nearbyIncidentCandidateQuery } from "@/lib/incident-proximity";
-import { CheckNearbyIncidentInput } from "@/schema/incident/check-nearby-incident.schema";
+import { findMatchingNearbyIncident, nearbyIncidentCandidateQuery } from "@/domain/incident-proximity.policy";
+import { CheckNearbyIncidentInput } from "@/validation/incident/check-nearby-incident.schema";
 import {
   normalizeResponseServices,
   responseServiceFromText,
-} from "@/lib/response-services";
+} from "@/domain/response-services.policy";
 import { resolveBarangayFromCoordinates } from "@/lib/barangay-boundaries";
 
 function categorySearchTerm(category: string): string | undefined {

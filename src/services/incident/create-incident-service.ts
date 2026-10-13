@@ -1,27 +1,27 @@
 import { prisma } from "@/lib/prisma";
 import { IncidentRepository } from "@/repositories/incident.repository";
-import { CreateIncidentInput } from "@/schema/incident/create-incident.schema";
+import { CreateIncidentInput } from "@/validation/incident/create-incident.schema";
 import { ResponseService, Role, SeverityLevel } from "@/generated/prisma";
 import { verifyUploadedAsset } from "@/lib/cloudinary";
 import { publishEmergencyEvent } from "@/lib/events";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import {
   DUPLICATE_INCIDENT_RADIUS_METERS,
   NearbyIncident,
   findMatchingNearbyIncident,
   nearbyIncidentCandidateQuery,
   nearbyIncidentLockKeys,
-} from "@/lib/incident-proximity";
+} from "@/domain/incident-proximity.policy";
 import {
   normalizeResponseServices,
   responseServiceFromText,
-} from "@/lib/response-services";
+} from "@/domain/response-services.policy";
 import { enqueueAssetCleanup, enqueueNotification } from "@/lib/jobs";
 import { incidentNotificationAudience } from '@/lib/incident-notification-audience';
 import { protectIncidentEvidence } from "@/lib/evidence";
 import { resolveBarangayFromCoordinates } from "@/lib/barangay-boundaries";
-import { departmentService } from "@/lib/department-access";
-import { hasValidOperationalAssignment, isMainAdministrator } from "@/lib/permissions";
+import { departmentService } from "@/domain/department-access.policy";
+import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/permissions.policy";
 
 const incidentRepository = new IncidentRepository();
 

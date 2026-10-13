@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import rateLimit from 'express-rate-limit';
 import { createHmac } from 'node:crypto';
-import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middlewares/api-gateway';
+import { createApiGatewayGuard, clientIpRateLimitKey } from '@/middleware/api-gateway';
 import { isApiPath } from '@/lib/api-path';
 
 const secret = 'gateway-unit-test-secret-not-a-credential';

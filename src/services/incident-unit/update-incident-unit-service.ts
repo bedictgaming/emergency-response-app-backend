@@ -1,9 +1,9 @@
 import { IncidentUnitRepository } from "@/repositories/incident-unit.repository";
-import { UpdateIncidentUnitInput } from "@/schema/incident-unit/update-incident-unit.schema";
+import { UpdateIncidentUnitInput } from "@/validation/incident-unit/update-incident-unit.schema";
 import { IncidentUnitStatus, UnitStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
-import { isWorkflowConflict } from "@/lib/workflow-error";
+import { isWorkflowConflict } from "@/domain/workflow-error.policy";
 
 const incidentUnitRepository = new IncidentUnitRepository();
 

@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { IncidentUnitController } from "@/controllers/incident-unit.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { updateIncidentUnitSchema } from "@/schema/incident-unit";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole } from "@/middlewares/rbac-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
+import { updateIncidentUnitSchema } from "@/validation/incident-unit";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
-import { requireIncidentUnitDepartment } from "@/middlewares/operational-access-middleware";
+import { requireIncidentUnitDepartment } from "@/middleware/operational-access-middleware";
 
 // Initialize
 const router = Router();

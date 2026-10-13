@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { IncidentTypeController } from "@/controllers/incident-type.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { createIncidentTypeSchema, updateIncidentTypeSchema } from "@/schema/incident-type";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole, requireMainAdmin } from "@/middlewares/rbac-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
+import { createIncidentTypeSchema, updateIncidentTypeSchema } from "@/validation/incident-type";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole, requireMainAdmin } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
 
 // Initialize

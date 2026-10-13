@@ -2,12 +2,12 @@ import { IncidentRepository } from "@/repositories/incident.repository";
 import { prisma } from "@/lib/prisma";
 import { enqueueAssetCleanup } from "@/lib/jobs";
 import { UnitStatus } from "@/generated/prisma";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import type { JwtPayload } from "@/lib/jwt";
-import { isMainAdministrator } from "@/lib/permissions";
+import { isMainAdministrator } from "@/domain/permissions.policy";
 import { publishEmergencyEvent } from "@/lib/events";
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
-import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/lib/false-report-disposition';
+import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/domain/false-report-disposition.policy';
 
 const incidentRepository = new IncidentRepository();
 export const DeleteIncidentService = async (id: string, actor: JwtPayload, input: { reason: string; confirmation: string; falseReport?: FalseReportVersion }) => {

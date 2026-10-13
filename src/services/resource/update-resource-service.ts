@@ -1,5 +1,5 @@
 import { ResourceRepository } from "@/repositories/resource.repository";
-import { UpdateResourceInput } from "@/schema/resource/update-resource.schema";
+import { UpdateResourceInput } from "@/validation/resource/update-resource.schema";
 
 const resourceRepository = new ResourceRepository();
 

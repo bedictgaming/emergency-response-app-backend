@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { UploadController } from "@/controllers/upload.controller";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
 
 const router = Router();
 const uploadController = new UploadController();

@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { BarangayController } from "@/controllers/barangay.controller";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole, requireMainAdmin } from "@/middlewares/rbac-middleware";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole, requireMainAdmin } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { updateBarangaySchema } from "@/schema/barangay/update-barangay.schema";
+import { validateSchema } from "@/middleware/validate.schema";
+import { updateBarangaySchema } from "@/validation/barangay/update-barangay.schema";
 
 const router = Router();
 const barangayController = new BarangayController();

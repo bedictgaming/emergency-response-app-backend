@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 const list = vi.hoisted(() => vi.fn());
 vi.mock('@/services/incident', () => ({ GetAllIncidentsService: list }));
 import { IncidentController } from '@/controllers/incident.controller';
-import { listIncidentsSchema } from '@/schema/incident/list-incidents.schema';
+import { listIncidentsSchema } from '@/validation/incident/list-incidents.schema';
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 it('uses server Manila month/year boundaries and preserves citizen scope', async () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-12-31T16:30:00Z'));

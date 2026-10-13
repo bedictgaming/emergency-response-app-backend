@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { withPermissions } from "@/lib/permissions";
+import { withPermissions } from "@/domain/permissions.policy";
 
 export const GetMeService = async (userId: string) => {
   try {

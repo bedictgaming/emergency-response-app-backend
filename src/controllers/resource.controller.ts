@@ -9,7 +9,7 @@ import {
 } from "@/services/resource";
 import { ResourceStatus } from "@/generated/prisma";
 import { JwtPayload } from "@/lib/jwt";
-import { departmentUnitScope } from "@/lib/department-access";
+import { departmentUnitScope } from "@/domain/department-access.policy";
 
 export class ResourceController {
   // GET /resources/v1/

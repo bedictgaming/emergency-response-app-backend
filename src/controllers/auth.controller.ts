@@ -3,7 +3,7 @@ import { Profile } from "passport-google-oauth20";
 import { SignupUserService, LoginCredentialsService, RefreshTokenService, GetMeService, GoogleOAuthService, RequestPasswordResetService, ResetPasswordService } from "@/services/auth";
 import { TokenExpiry, toMilliseconds, verifyAccessToken, type JwtPayload } from "@/lib/jwt";
 import { ENV } from "@/config/env";
-import { prisma } from "@/lib/prisma";
+import { LogoutService } from '@/services/auth/logout-service';
 import { BeginGoogleLinkService, CompleteGoogleLinkService, GetLoginMethodsService, UnlinkGoogleService } from "@/services/auth/google-link-service";
 import { publicAppOrigin, publicApiOrigin } from "@/lib/public-origin";
 
@@ -99,7 +99,7 @@ export class AuthController {
   public logout = async (req: Request, res: Response) => {
     const domain = ENV.COOKIE_DOMAIN;
     const refresh = req.cookies?.refreshToken || req.body?.refreshToken;
-    if (typeof refresh === "string") await prisma.token.updateMany({ where: { token: refresh, type: "REFRESH", revokedAt: null }, data: { revokedAt: new Date() } });
+    await LogoutService(refresh);
 
     res.clearCookie("accessToken", { domain });
     res.clearCookie("refreshToken", { domain });

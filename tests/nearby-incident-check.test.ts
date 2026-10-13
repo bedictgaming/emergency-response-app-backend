@@ -15,7 +15,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import { CheckNearbyIncidentService } from "@/services/incident/check-nearby-incident-service";
-import { checkNearbyIncidentSchema } from "@/schema/incident/check-nearby-incident.schema";
+import { checkNearbyIncidentSchema } from "@/validation/incident/check-nearby-incident.schema";
 
 describe("nearby incident pre-check", () => {
   beforeEach(() => {

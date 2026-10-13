@@ -4,6 +4,13 @@ import { TokenType } from "@/generated/prisma";
 import type { Token } from "@/generated/prisma/client";
 
 export class TokenRepository {
+  async revokeRefreshTokenByValue(token: string) {
+    return prisma.token.updateMany({
+      where: { token, type: TokenType.REFRESH, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   // Persist cooldown claims without invalidating a still-valid email link.
   async claimVerificationResend(userId: string, now = new Date()) {
     return prisma.$transaction(async tx => {

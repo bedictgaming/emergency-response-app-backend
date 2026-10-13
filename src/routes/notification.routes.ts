@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { validateSchema } from "@/middlewares/validate.schema";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
 import { JwtPayload } from "@/lib/jwt";
 import { prisma } from "@/lib/prisma";
 import { ENV } from "@/config/env";

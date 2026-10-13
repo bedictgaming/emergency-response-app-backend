@@ -6,12 +6,12 @@ vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: calls.database } }));
 vi.mock('@/lib/events', () => ({ publishEmergencyEvent: vi.fn() }));
 vi.mock('@/lib/jobs', () => ({ enqueueNotification: vi.fn() }));
 vi.mock('@/repositories/task.repository', () => ({ TaskRepository: class { findIncidentById = calls.incident; findById = calls.task; } }));
-vi.mock('@/middlewares/auth-middleware', () => ({ AuthMiddleware: class { execute = (req: any, _res: any, next: any) => { req.user = { role: 'ADMIN' }; next(); }; } }));
+vi.mock('@/middleware/auth-middleware', () => ({ AuthMiddleware: class { execute = (req: any, _res: any, next: any) => { req.user = { role: 'ADMIN' }; next(); }; } }));
 import router from '@/routes/responder.routes';
 import { CreateTaskService } from '@/services/task/create-task-service';
 import { UpdateTaskService } from '@/services/task/update-task-service';
-import { createTaskSchema } from '@/schema/task/create-task.schema';
-import { updateTaskSchema } from '@/schema/task/update-task.schema';
+import { createTaskSchema } from '@/validation/task/create-task.schema';
+import { updateTaskSchema } from '@/validation/task/update-task.schema';
 beforeEach(() => vi.clearAllMocks());
 it('tombstones every old responder CRUD method without database writes', async () => {
   const app = express().use('/responders', router);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { permittedRole } from "@/middlewares/rbac-middleware";
+import { permittedRole } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
 
 function responseMock() {

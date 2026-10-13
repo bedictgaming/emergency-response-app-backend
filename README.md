@@ -2,6 +2,8 @@
 
 Production-oriented Express, TypeScript, Prisma, and PostgreSQL API for Cordova's emergency response system.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for domain, validation, middleware, controller, service and repository boundaries. Workspace `MASTER_PROMPT.md` overrides historical setup/role/provider statements below: Responder access is retired, migrations need an approved target and encrypted backup, and runtime startup does not migrate. This structural refactor is local until separately deployed.
+
 ## Local setup
 
 1. Copy `.env.example` to `.env` and supply the required credentials.

@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { departmentIncidentScope } from "@/lib/department-access";
+import { departmentIncidentScope } from "@/domain/department-access.policy";
 import type { JwtPayload } from "@/lib/jwt";
 import { publishEmergencyEvent } from "@/lib/events";
-import { WorkflowConflict, isWorkflowConflict } from "@/lib/workflow-error";
-import { responseServicesForIncident, sameResponseServices } from "@/lib/response-services";
+import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
+import { responseServicesForIncident, sameResponseServices } from "@/domain/response-services.policy";
 import { protectIncidentEvidence } from "@/lib/evidence";
 
 export async function MergeIncidentService(sourceIncidentId: string, targetIncidentId: string, reason: string, actor: JwtPayload) {

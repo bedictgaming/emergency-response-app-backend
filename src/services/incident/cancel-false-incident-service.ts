@@ -1,9 +1,9 @@
 import { prisma } from '@/lib/prisma';
 import type { JwtPayload } from '@/lib/jwt';
-import { isMainAdministrator } from '@/lib/permissions';
+import { isMainAdministrator } from '@/domain/permissions.policy';
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
-import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/lib/false-report-disposition';
-import { WorkflowConflict, isWorkflowConflict } from '@/lib/workflow-error';
+import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/domain/false-report-disposition.policy';
+import { WorkflowConflict, isWorkflowConflict } from '@/domain/workflow-error.policy';
 import { publishEmergencyEvent } from '@/lib/events';
 
 export async function CancelFalseIncidentService(id: string, input: FalseReportVersion & { reason: string }, actor: JwtPayload) {

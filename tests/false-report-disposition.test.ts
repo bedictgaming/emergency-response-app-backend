@@ -7,7 +7,7 @@ vi.mock('@/lib/events', () => ({ publishEmergencyEvent: mocks.event }));
 import { CancelFalseIncidentService } from '@/services/incident/cancel-false-incident-service';
 import { DeleteIncidentService } from '@/services/incident/delete-incident-service';
 import { IncidentRepository } from '@/repositories/incident.repository';
-import { cancelFalseIncidentSchema, deleteIncidentSchema } from '@/schema/incident/review-incident.schema';
+import { cancelFalseIncidentSchema, deleteIncidentSchema } from '@/validation/incident/review-incident.schema';
 
 const main = { sub: 'main', role: 'ADMIN', department: 'MAIN', isMainAdmin: true, sessionId: 'session', type: 'access' } as const;
 const date = new Date('2026-10-13T00:00:00.000Z');

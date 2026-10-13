@@ -2,7 +2,7 @@ import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
 import { TokenRepository } from "@/repositories/token.repository";
 import { signAccessToken, signRefreshToken, TokenExpiry, verifyRefreshToken } from "@/lib/jwt";
-import { hasValidOperationalAssignment, withPermissions } from "@/lib/permissions";
+import { hasValidOperationalAssignment, withPermissions } from "@/domain/permissions.policy";
 
 export async function RefreshTokenService(refreshToken?: string) {
   const payload = verifyRefreshToken(refreshToken!);

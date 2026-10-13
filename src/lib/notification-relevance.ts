@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
-import { departmentService } from '@/lib/department-access';
-import { isMainAdministrator } from '@/lib/permissions';
-import { responseServicesForIncident, unitTypeSupportsService } from '@/lib/response-services';
+import { departmentService } from '@/domain/department-access.policy';
+import { isMainAdministrator } from '@/domain/permissions.policy';
+import { responseServicesForIncident, unitTypeSupportsService } from '@/domain/response-services.policy';
 
 export type NotificationJob = { eventType: string; createdAt: Date; payload: unknown; userIds: string[]; audienceIds?: string[] };
 export const notificationAudience = (job: NotificationJob) => job.audienceIds ?? job.userIds;

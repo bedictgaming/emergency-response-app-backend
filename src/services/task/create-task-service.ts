@@ -1,9 +1,9 @@
 import { TaskRepository } from "@/repositories/task.repository";
-import { CreateTaskInput } from "@/schema/task/create-task.schema";
+import { CreateTaskInput } from "@/validation/task/create-task.schema";
 import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
 import { enqueueNotification } from "@/lib/jobs";
-import { WorkflowConflict, isWorkflowConflict } from '@/lib/workflow-error';
+import { WorkflowConflict, isWorkflowConflict } from '@/domain/workflow-error.policy';
 
 const taskRepository = new TaskRepository();
 

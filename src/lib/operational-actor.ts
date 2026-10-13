@@ -1,6 +1,6 @@
 import type { Prisma } from '@/generated/prisma';
 import type { JwtPayload } from '@/lib/jwt';
-import { hasValidOperationalAssignment, permissionsForActor } from '@/lib/permissions';
+import { hasValidOperationalAssignment, permissionsForActor } from '@/domain/permissions.policy';
 
 export class OperationalAuthorizationError extends Error {
   readonly code = 403;

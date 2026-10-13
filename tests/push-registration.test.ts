@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), lock: vi.fn(), find: vi.fn(), count: vi.fn(), upsert: vi.fn(), remove: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction, deviceToken: { deleteMany: mocks.remove } } }));
 vi.mock("@/config/env", () => ({ ENV: {} }));
-vi.mock("@/middlewares/auth-middleware", () => ({ AuthMiddleware: class {
+vi.mock("@/middleware/auth-middleware", () => ({ AuthMiddleware: class {
   execute(req: express.Request, res: express.Response, next: express.NextFunction) {
     if (!req.headers["x-test-user"]) return res.status(401).end();
     req.user = { sub: req.headers["x-test-user"] } as never; next();

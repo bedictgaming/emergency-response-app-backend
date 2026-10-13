@@ -11,7 +11,7 @@ import { FlagIncidentService, ReviewIncidentFlagService, CorrectIncidentFlagServ
 import { DeleteIncidentService } from '@/services/incident/delete-incident-service';
 import { UpdateServiceResponseService } from '@/services/incident/update-service-response-service';
 import { lockOperationalActor } from '@/lib/operational-actor';
-import { correctIncidentFlagSchema } from '@/schema/incident/review-incident.schema';
+import { correctIncidentFlagSchema } from '@/validation/incident/review-incident.schema';
 
 const main: JwtPayload = { sub: 'main', sessionId: 'session', role: 'ADMIN', type: 'access', department: 'MAIN', isMainAdmin: true };
 const fire: JwtPayload = { ...main, sub: 'fire', department: 'FIRE', isMainAdmin: false };

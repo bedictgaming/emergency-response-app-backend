@@ -4,7 +4,7 @@ import request from 'supertest';
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ begin: vi.fn(), finish: vi.fn(), claim: vi.fn(), unlink: vi.fn(), methods: vi.fn(), passport: vi.fn(), google: vi.fn(), verifyAccess: vi.fn() }));
 const actor = { sub: '00000000-0000-4000-8000-000000000001', sessionId: '00000000-0000-4000-8000-000000000002', role: 'USER', type: 'access' };
-vi.mock('@/middlewares/auth-middleware', () => ({ AuthMiddleware: class {
+vi.mock('@/middleware/auth-middleware', () => ({ AuthMiddleware: class {
   execute(req: express.Request, res: express.Response, next: express.NextFunction) {
     if (req.headers.authorization !== 'Bearer synthetic') return res.status(401).json({ code: 401 });
     req.user = { sub: '00000000-0000-4000-8000-000000000001', sessionId: '00000000-0000-4000-8000-000000000002', role: 'USER' }; next();

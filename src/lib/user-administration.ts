@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@/generated/prisma';
-import { isMainAdministrator } from '@/lib/permissions';
+import { isMainAdministrator } from '@/domain/permissions.policy';
 
 const managedUserSelect = {
   id: true, name: true, email: true, role: true, status: true,

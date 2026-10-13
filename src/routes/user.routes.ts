@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { UserController } from "@/controllers/user.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { updateUserRoleSchema, updateUserStatusSchema } from "@/schema/user";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { requireMainAdmin, requirePermission } from "@/middlewares/rbac-middleware";
-import { Permission } from "@/lib/permissions";
+import { validateSchema } from "@/middleware/validate.schema";
+import { updateUserRoleSchema, updateUserStatusSchema } from "@/validation/user";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { requireMainAdmin, requirePermission } from "@/middleware/rbac-middleware";
+import { Permission } from "@/domain/permissions.policy";
 
 // Initialize
 const router = Router();

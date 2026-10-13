@@ -1,8 +1,8 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { protectIncidentEvidence } from "@/lib/evidence";
-import { verifiedAnalyticsEligibility } from '@/lib/verified-analytics';
-import { presentIncidentReviews, reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/lib/incident-review-notices';
+import { verifiedAnalyticsEligibility } from '@/domain/verified-analytics.policy';
+import { presentIncidentReviews, reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
 
 const incidentRepository = new IncidentRepository();
 

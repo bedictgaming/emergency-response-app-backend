@@ -5,7 +5,7 @@ import {
   GetBarangayIncidentsService,
   UpdateBarangayService,
 } from "@/services/barangay";
-import { departmentIncidentScope } from "@/lib/department-access";
+import { departmentIncidentScope } from "@/domain/department-access.policy";
 import { JwtPayload } from "@/lib/jwt";
 
 export class BarangayController {

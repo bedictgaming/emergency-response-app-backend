@@ -1,9 +1,9 @@
 import { ResponseService, ServiceResponseStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
-import { departmentService } from "@/lib/department-access";
+import { departmentService } from "@/domain/department-access.policy";
 import type { JwtPayload } from "@/lib/jwt";
 import { publishEmergencyEvent } from "@/lib/events";
-import { isMainAdministrator } from "@/lib/permissions";
+import { isMainAdministrator } from "@/domain/permissions.policy";
 import { enqueueNotification } from '@/lib/jobs';
 import { incidentNotificationAudience } from '@/lib/incident-notification-audience';
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';

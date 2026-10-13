@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { LocationController } from "@/controllers/location.controller";
-import { validateSchema } from "@/middlewares/validate.schema";
-import { createLocationSchema, updateLocationSchema } from "@/schema/location";
-import { AuthMiddleware } from "@/middlewares/auth-middleware";
-import { permittedRole, requireMainAdmin } from "@/middlewares/rbac-middleware";
+import { validateSchema } from "@/middleware/validate.schema";
+import { createLocationSchema, updateLocationSchema } from "@/validation/location";
+import { AuthMiddleware } from "@/middleware/auth-middleware";
+import { permittedRole, requireMainAdmin } from "@/middleware/rbac-middleware";
 import { Role } from "@/generated/prisma";
 
 // Initialize

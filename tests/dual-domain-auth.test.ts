@@ -14,8 +14,8 @@ vi.mock('@/config/env', async original => ({ ENV: { ...(await original<typeof im
   ADDITIONAL_FRONTEND_ORIGINS: ['https://cordova-emergency-response.vercel.app'], API_GATEWAY_REQUIRED: true, API_GATEWAY_AUDIENCE: 'emergency-response-production-v1' } }));
 vi.mock('@/lib/passport', () => ({ default: { authenticate: (...args: unknown[]) => oauth(...args) } }));
 vi.mock('@/services/auth', () => ({ GoogleOAuthService: async () => ({ code: 403, errorCode: 'oauth_link_password_required' }) }));
-import { createApiGatewayGuard } from '@/middlewares/api-gateway';
-import { originGuard } from '@/middlewares/origin-guard';
+import { createApiGatewayGuard } from '@/middleware/api-gateway';
+import { originGuard } from '@/middleware/origin-guard';
 import { trustedOrigins } from '@/lib/public-origin';
 import auth from '@/routes/auth.routes';
 const app = express();

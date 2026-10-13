@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createIncidentSchema } from "@/schema/incident/create-incident.schema";
+import { createIncidentSchema } from "@/validation/incident/create-incident.schema";
 
 const baseBody = {
   title: "Storm emergency",
