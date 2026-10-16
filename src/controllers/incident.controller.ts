@@ -62,6 +62,8 @@ export class IncidentController {
       operationalScope = departmentIncidentScope({ ...authReq.user!, isMainAdmin: false, department: department as Department });
     }
     const filters = {
+      // Caller cannot opt a citizen into operational nearby-report lookups.
+      ...(operationalScope && req.query.includeTotal !== 'false' && { nearbyWarningScope: operationalScope }),
       ...(typeof req.query.search === "string" && { search: req.query.search.trim() }),
       ...(typeof req.query.typeName === "string" && { typeName: req.query.typeName }),
       ...(req.query.period === "THIS_MONTH" && (() => {
@@ -104,7 +106,8 @@ export class IncidentController {
   public getById = async (req: Request, res: Response) => {
     const id = req.params.id as string;
     const actor = (req as AuthenticatedRequest).user!;
-    const result = await GetIncidentService(id, reviewDepartmentFor(actor), reviewNoticeDepartmentFor(actor));
+    const result = await GetIncidentService(id, reviewDepartmentFor(actor), reviewNoticeDepartmentFor(actor),
+      ['ADMIN', 'DISPATCHER'].includes(actor.role) ? departmentIncidentScope(actor) : undefined);
     return res.status(result.code).json(result);
   };
 

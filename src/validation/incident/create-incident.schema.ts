@@ -3,6 +3,7 @@ import { ResponseService, SeverityLevel } from "@/generated/prisma";
 
 export const createIncidentSchema = z.object({
   body: z.object({
+    submissionId: z.string().uuid().optional(),
     title: z
       .string({ message: "Title is required" })
       .min(3, "Title must be at least 3 characters"),

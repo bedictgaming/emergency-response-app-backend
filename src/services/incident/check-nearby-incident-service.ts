@@ -76,10 +76,11 @@ export async function CheckNearbyIncidentService(data: CheckNearbyIncidentInput)
     code: 200,
     status: "success",
     data: {
-      duplicate: true,
+      duplicate: false,
+      possibleDuplicate: true,
       locationAccepted: true,
       barangayName: resolvedBarangayName,
-      message: "A similar active emergency has already been reported nearby. Your report was not submitted.",
+      message: "A similar emergency was reported nearby. A separate emergency can still be submitted; staff will assess the reports.",
     },
   };
 }

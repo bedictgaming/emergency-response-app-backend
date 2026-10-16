@@ -47,9 +47,10 @@ describe("nearby incident pre-check", () => {
     });
 
     expect(result.data).toMatchObject({
-      duplicate: true,
+      duplicate: false,
+      possibleDuplicate: true,
       locationAccepted: true,
-      message: expect.stringContaining("already been reported nearby"),
+      message: expect.stringContaining("separate emergency can still be submitted"),
     });
     expect(result.data).not.toHaveProperty("existingIncident");
     expect(JSON.stringify(result.data)).not.toContain("existing");
@@ -128,7 +129,7 @@ describe("nearby incident pre-check", () => {
     }]);
     const request = { category: "general", barangayName: "Gabi", latitude: 10.262, longitude: 123.958 };
     const duplicate = await CheckNearbyIncidentService(request);
-    expect(duplicate.data).toMatchObject({ duplicate: true, locationAccepted: true });
+    expect(duplicate.data).toMatchObject({ duplicate: false, possibleDuplicate: true, locationAccepted: true });
     expect(mocks.findType).toHaveBeenCalledWith(expect.objectContaining({
       where: { typeName: { contains: "General", mode: "insensitive" } },
     }));

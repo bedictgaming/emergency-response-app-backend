@@ -1,4 +1,5 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
+import { withNearbyReportNotices } from './nearby-report-notices';
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { protectIncidentEvidence } from "@/lib/evidence";
 import { verifiedAnalyticsEligibility } from '@/domain/verified-analytics.policy';
@@ -7,6 +8,7 @@ import { presentIncidentReviews, reviewNoticeIncidentScope, type ReviewNoticeSco
 const incidentRepository = new IncidentRepository();
 
 interface GetAllIncidentsFilters {
+  nearbyWarningScope?: Prisma.IncidentWhereInput;
   search?: string;
   typeName?: string;
   historyFrom?: Date;
@@ -64,6 +66,8 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       includeVerifiedSummary ? incidentRepository.countByResponseService(verifiedFilters) : Promise.resolve(undefined),
     ]);
 
+    const presentedIncidents = filters?.nearbyWarningScope
+      ? await withNearbyReportNotices(incidents, filters.nearbyWarningScope) : incidents;
     const verified = verifiedCounts && {
       total: verifiedCounts.reduce((sum, row) => sum + row._count._all, 0),
       active: verifiedCounts.reduce((sum, row) => sum + (["OPEN", "ACTIVE"].includes(row.status) ? row._count._all : 0), 0),
@@ -118,7 +122,7 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       code: 200,
       status: "success",
       data: {
-        incidents: incidents.map(incident => protectIncidentEvidence(presentIncidentReviews(incident, filters?.reviewDepartment, filters?.reviewNoticeDepartment))),
+        incidents: presentedIncidents.map(incident => protectIncidentEvidence(presentIncidentReviews(incident, filters?.reviewDepartment, filters?.reviewNoticeDepartment))),
         ...(verified && { verifiedSummary: verified }),
         ...(total !== undefined && {
           pagination: { page: filters?.page ?? 1, limit: filters?.limit ?? 50, total, pages: Math.ceil(total / (filters?.limit ?? 50)) },

@@ -367,7 +367,7 @@ suite("disposable PostgreSQL incident delivery", () => {
     expect(Math.max(...deliveryLatencies)).toBeLessThan(5_000);
   }, 60_000);
 
-  it("accepts one of two simultaneous nearby Fire submissions and rejects the duplicate", async () => {
+  it("accepts two simultaneous nearby Fire submissions without assuming the events are identical", async () => {
     const title = `Codex race ${testId}`;
     const startedAt = performance.now();
     const results = await Promise.all([raceCitizenA, raceCitizenB].map((account) =>
@@ -376,20 +376,20 @@ suite("disposable PostgreSQL incident delivery", () => {
         cookie: account.cookie,
         body: reportBody(account, title, fireTypeId, "fire"),
       })));
-    expect(results.map(({ response }) => response.status).sort()).toEqual([201, 409]);
-    const created = results.find(({ response }) => response.status === 201)!;
-    const rejected = results.find(({ response }) => response.status === 409)!;
-    expect(rejected.body.errorCode).toBe("DUPLICATE_ACTIVE_INCIDENT");
-    expect(rejected.body).not.toHaveProperty("data.incident");
-    incidentIds.push(created.body.data.incident.incidentId as string);
-    locationIds.push(created.body.data.incident.locationId as string);
+    expect(results.map(({ response }) => response.status).sort()).toEqual([201, 201]);
+    for (const created of results) {
+      incidentIds.push(created.body.data.incident.incidentId as string);
+      locationIds.push(created.body.data.incident.locationId as string);
+    }
     const persisted = await prisma.incident.findMany({
       where: { title, reportedBy: { in: [raceCitizenA.id, raceCitizenB.id] } },
       select: { incidentId: true, attachments: { select: { attachmentId: true } }, serviceResponses: { select: { service: true } } },
     });
-    expect(persisted).toHaveLength(1);
-    expect(persisted[0].attachments).toHaveLength(1);
-    expect(persisted[0].serviceResponses.map((item) => item.service)).toEqual(["FIRE"]);
+    expect(persisted).toHaveLength(2);
+    for (const report of persisted) {
+      expect(report.attachments).toHaveLength(1);
+      expect(report.serviceResponses.map((item) => item.service)).toEqual(["FIRE"]);
+    }
     console.info("Disposable duplicate-race sample (ms):", Math.round(performance.now() - startedAt));
   }, 30_000);
 

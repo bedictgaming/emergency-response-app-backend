@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { prisma } from "@/lib/prisma";
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { CreateIncidentInput } from "@/validation/incident/create-incident.schema";
@@ -6,8 +7,6 @@ import { verifyUploadedAsset } from "@/lib/cloudinary";
 import { publishEmergencyEvent } from "@/lib/events";
 import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import {
-  DUPLICATE_INCIDENT_RADIUS_METERS,
-  NearbyIncident,
   findMatchingNearbyIncident,
   nearbyIncidentCandidateQuery,
   nearbyIncidentLockKeys,
@@ -25,11 +24,7 @@ import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/per
 
 const incidentRepository = new IncidentRepository();
 
-class DuplicateActiveIncidentError extends WorkflowConflict {
-  public constructor(public readonly existingIncident: NearbyIncident) {
-    super("An emergency of this type has already been reported near this location.");
-  }
-}
+class RepeatedSubmissionError extends WorkflowConflict {}
 
 class ReporterAccessWithdrawnError extends Error {}
 
@@ -55,6 +50,8 @@ export const CreateIncidentService = async (
 ) => {
   let verifiedProof: Awaited<ReturnType<typeof verifyUploadedAsset>> | undefined;
   let proofPersisted = false;
+  const submissionKey = data.submissionId
+    ? createHash('sha256').update(`${reportedBy}:${data.submissionId}`).digest('hex') : undefined;
 
   try {
     const reporter = await prisma.user.findUnique({
@@ -76,6 +73,9 @@ export const CreateIncidentService = async (
         verifiedProof = await verifyUploadedAsset(data.proofAttachment.publicId, reportedBy);
         if (verifiedProof.moderationStatus === "rejected") {
           return { code: 422, status: "error", message: "The proof photo did not pass content moderation" };
+        }
+        if (await prisma.attachment.findUnique({ where: { publicId: verifiedProof.publicId }, select: { attachmentId: true } })) {
+          return { code: 409, status: 'error', message: 'You already used this proof photo for another incident' };
         }
         if (verifiedProof.phash) {
           const duplicate = await prisma.attachment.findFirst({
@@ -271,8 +271,7 @@ export const CreateIncidentService = async (
       let approvedDuplicateOverride = false;
       // Preserve reporter serialization for evidence checks; there is no daily quota.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${reportedBy} FOR UPDATE`;
-      // Account administration takes this same row lock. Authorization must be
-      // linearized here, not at the earlier middleware/provider/preflight read.
+      // Preserve the published account-administration/creation linearization.
       const currentReporter = await tx.user.findUnique({
         where: { id: reportedBy },
         select: { role: true, status: true, department: true, isMainAdmin: true },
@@ -283,10 +282,18 @@ export const CreateIncidentService = async (
       if (currentReporter.role !== reporter.role
         || (currentReporter.department ?? null) !== (reporter.department ?? null)
         || Boolean(currentReporter.isMainAdmin) !== Boolean(reporter.isMainAdmin)) {
-        // Reject rather than reinterpret a staff request as a citizen request:
-        // its proof, location, department and override checks used the old role.
+        // Never reinterpret a staff request using authority that changed mid-flight.
         throw new WorkflowConflict("Your account permissions changed while reporting. Refresh and submit again using your current access.");
       }
+      // This durable receipt survives retries, process restarts and report deletion.
+      // Serialize by reporter before checking/writing the same account-scoped key.
+      if (submissionKey && await tx.auditLog.findFirst({ where: {
+        actorId: reportedBy, entityType: 'Incident', action: { in: ['INCIDENT_CREATED', 'INCIDENT_DUPLICATE_OVERRIDE'] },
+        metadata: { path: ['submissionKey'], equals: submissionKey },
+      }, select: { auditLogId: true } })) {
+        throw new RepeatedSubmissionError('This submission was already received. Check your reports before starting a new report.');
+      }
+      let nearbyReportDetected = false;
       if (verifiedProof?.phash) {
         const reporterProofKey = `${reportedBy}:${verifiedProof.phash}`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${reporterProofKey}, 0))`;
@@ -298,7 +305,7 @@ export const CreateIncidentService = async (
         && Number.isFinite(effectiveLatitude) && Number.isFinite(effectiveLongitude)) {
         // Neighboring geographic cells share advisory locks even when their
         // resolved barangays differ. Lock all requested services in stable
-        // order before the authoritative duplicate read.
+        // order before the advisory nearby read. Nearby events may be distinct.
         const areaLockServices = targetResponseServices.length > 0
           ? [...targetResponseServices].sort()
           : [resolvedTypeId!];
@@ -328,7 +335,7 @@ export const CreateIncidentService = async (
           targetResponseServices,
           resolvedTypeId,
         );
-        if (duplicate && !data.duplicateOverrideReason) throw new DuplicateActiveIncidentError(duplicate);
+        nearbyReportDetected = Boolean(duplicate);
         approvedDuplicateOverride = Boolean(duplicate && data.duplicateOverrideReason);
       }
       if (!resolvedLocationId) {
@@ -377,7 +384,9 @@ export const CreateIncidentService = async (
         include: { type: true, location: true, barangay: true, attachments: true, serviceResponses: true },
       });
       await tx.auditLog.create({
-        data: { actorId: reportedBy, action: approvedDuplicateOverride ? "INCIDENT_DUPLICATE_OVERRIDE" : "INCIDENT_CREATED", entityType: "Incident", entityId: created.incidentId, metadata: approvedDuplicateOverride ? { reason: data.duplicateOverrideReason } : undefined },
+        data: { actorId: reportedBy, action: approvedDuplicateOverride ? "INCIDENT_DUPLICATE_OVERRIDE" : "INCIDENT_CREATED", entityType: "Incident", entityId: created.incidentId,
+          metadata: { ...(submissionKey && { submissionKey }), nearbyReportDetected,
+            ...(approvedDuplicateOverride && { reason: data.duplicateOverrideReason }) } },
       });
       if (targetResponseServices.length > 0) {
         const recipientIds = await incidentNotificationAudience(tx, targetResponseServices);
@@ -403,26 +412,12 @@ export const CreateIncidentService = async (
     if (error instanceof ReporterAccessWithdrawnError) {
       return { code: 403, status: "error", message: error.message };
     }
-    if (error instanceof DuplicateActiveIncidentError) {
-      const distanceMeters = Math.round(error.existingIncident.distanceMeters);
-      await prisma.auditLog.create({
-        data: {
-          actorId: reportedBy,
-          action: "INCIDENT_DUPLICATE_REJECTED",
-          entityType: "Incident",
-          entityId: error.existingIncident.incidentId,
-          metadata: {
-            distanceMeters,
-            radiusMeters: DUPLICATE_INCIDENT_RADIUS_METERS,
-          },
-        },
-      }).catch(() => undefined);
-      return {
-        code: 409,
-        status: "error",
-        errorCode: "DUPLICATE_ACTIVE_INCIDENT",
-        message: "A similar active emergency has already been reported nearby. Your report was not submitted.",
-      };
+    if (error instanceof RepeatedSubmissionError) return {
+      code: 409, status: 'error', errorCode: 'DUPLICATE_SUBMISSION', message: error.message,
+    };
+    const databaseError = error as { code?: string; meta?: { target?: string[] } };
+    if (databaseError?.code === 'P2002' && databaseError.meta?.target?.includes('public_id')) {
+      return { code: 409, status: 'error', message: 'You already used this proof photo for another incident' };
     }
     if (isWorkflowConflict(error)) return { code: 409, status: "error", message: error instanceof WorkflowConflict ? error.message : "The report or evidence was already submitted. Refresh before retrying." };
     console.error("CreateIncidentService Error", error);

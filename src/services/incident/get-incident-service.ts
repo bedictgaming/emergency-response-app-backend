@@ -1,11 +1,12 @@
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { protectIncidentEvidence } from "@/lib/evidence";
-import type { Department } from "@/generated/prisma";
+import type { Department, Prisma } from "@/generated/prisma";
+import { withNearbyReportNotices } from './nearby-report-notices';
 import { presentIncidentReviews, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
 
 const incidentRepository = new IncidentRepository();
 
-export const GetIncidentService = async (id: string, reviewDepartment?: Department | "ALL", reviewNoticeDepartment?: ReviewNoticeScope) => {
+export const GetIncidentService = async (id: string, reviewDepartment?: Department | "ALL", reviewNoticeDepartment?: ReviewNoticeScope, nearbyWarningScope?: Prisma.IncidentWhereInput) => {
   try {
     const incident = await incidentRepository.findById(id, reviewDepartment, reviewNoticeDepartment);
 
@@ -13,10 +14,11 @@ export const GetIncidentService = async (id: string, reviewDepartment?: Departme
       return { code: 404, status: "error", message: "Incident not found" };
     }
 
+    const presented = nearbyWarningScope ? (await withNearbyReportNotices([incident], nearbyWarningScope))[0] : incident;
     return {
       code: 200,
       status: "success",
-      data: { incident: protectIncidentEvidence(presentIncidentReviews(incident, reviewDepartment, reviewNoticeDepartment)) },
+      data: { incident: protectIncidentEvidence(presentIncidentReviews(presented, reviewDepartment, reviewNoticeDepartment)) },
     };
   } catch (error) {
     console.error("GetIncidentService Error", error);

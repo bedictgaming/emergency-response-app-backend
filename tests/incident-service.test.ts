@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   updateIncident: vi.fn(),
   claimIncident: vi.fn(),
   createAudit: vi.fn(),
+  findSubmissionReceipt: vi.fn(),
   findResponders: vi.fn(),
   findStaff: vi.fn(),
   sendPush: vi.fn(),
@@ -71,6 +72,8 @@ describe("incident workflow services", () => {
       const user = await mocks.findUser();
       return user ? { status: 'ACTIVE', department: null, isMainAdmin: false, ...user } : null;
     });
+    mocks.findSubmissionReceipt.mockResolvedValue(null);
+    mocks.createIncident.mockImplementation(async ({ data }) => ({ incidentId: 'new-incident', ...data }));
     mocks.countIncidents.mockResolvedValue(0);
     mocks.findAttachment.mockResolvedValue(null);
     mocks.findAttachmentByPublicId.mockResolvedValue(null);
@@ -292,7 +295,7 @@ describe("incident workflow services", () => {
     expect(mocks.executeRaw).not.toHaveBeenCalled();
   });
 
-  it.each(['OPEN', 'ACTIVE', 'RESPONDING'])("still rejects a nearby %s duplicate after the daily quota is removed", async (status) => {
+  it.each(['OPEN', 'ACTIVE', 'RESPONDING'])("accepts a distinct report near a %s incident without treating proximity as proof", async (status) => {
     mocks.findUser.mockResolvedValue({ role: "USER" });
     mocks.countIncidents.mockResolvedValue(100);
     mocks.verifyAsset.mockResolvedValue({
@@ -341,27 +344,26 @@ describe("incident workflow services", () => {
     }, "citizen-id");
 
     expect(result).toMatchObject({
-      code: 409,
-      errorCode: "DUPLICATE_ACTIVE_INCIDENT",
-      message: expect.stringContaining("already been reported nearby"),
+      code: 201,
+      message: 'Incident reported successfully',
     });
-    expect(result).not.toHaveProperty("data");
+    expect(result).not.toHaveProperty('errorCode');
     expect(mocks.countIncidents).not.toHaveBeenCalled();
     expect(transactionCount).not.toHaveBeenCalled();
-    expect(mocks.createIncident).not.toHaveBeenCalled();
-    expect(mocks.publish).not.toHaveBeenCalled();
-    expect(mocks.enqueueNotification).not.toHaveBeenCalled();
+    expect(mocks.createIncident).toHaveBeenCalledOnce();
+    expect(mocks.publish).toHaveBeenCalledOnce();
+    expect(mocks.enqueueNotification).toHaveBeenCalledOnce();
     expect(mocks.createAudit).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorId: "citizen-id",
-        action: "INCIDENT_DUPLICATE_REJECTED",
-        entityId: "existing-incident",
+        action: "INCIDENT_CREATED",
+        metadata: { nearbyReportDetected: true },
       }),
     });
-    expect(mocks.enqueueCleanup).toHaveBeenCalledWith(expect.anything(), "emergency-incidents/citizen-id/nearby");
+    expect(mocks.enqueueCleanup).not.toHaveBeenCalled();
   });
 
-  it("allows an own-department staff override only with an audited reason", async () => {
+  it("allows separate own-department reports without an override and preserves legacy audited reasons", async () => {
     mocks.findUser.mockResolvedValue({ role: "ADMIN", department: "FIRE", isMainAdmin: false });
     mocks.findIncidentType.mockResolvedValue({ typeId: "fire-type", typeName: "Fire" });
     mocks.findLocation.mockResolvedValue({ locationId: "location-id" });
@@ -392,9 +394,9 @@ describe("incident workflow services", () => {
       longitude: 123.949,
     };
 
-    const refused = await CreateIncidentService(request, "fire-admin-id");
-    expect(refused).toMatchObject({ code: 409, errorCode: "DUPLICATE_ACTIVE_INCIDENT" });
-    expect(mocks.createIncident).not.toHaveBeenCalled();
+    const first = await CreateIncidentService(request, "fire-admin-id");
+    expect(first.code).toBe(201);
+    expect(mocks.createIncident).toHaveBeenCalledOnce();
 
     const approved = await CreateIncidentService({
       ...request,
@@ -404,13 +406,13 @@ describe("incident workflow services", () => {
     expect(mocks.createAudit).toHaveBeenCalledWith({ data: expect.objectContaining({
       action: "INCIDENT_DUPLICATE_OVERRIDE",
       actorId: "fire-admin-id",
-      metadata: { reason: "Separate confirmed fire in another unit" },
+      metadata: { nearbyReportDetected: true, reason: "Separate confirmed fire in another unit" },
     }) });
 
     mocks.findIncidentType.mockResolvedValue({ typeId: "medical-type", typeName: "Medical" });
     const crossDepartment = await CreateIncidentService({ ...request, typeId: "medical-type" }, "fire-admin-id");
     expect(crossDepartment.code).toBe(403);
-    expect(mocks.createIncident).toHaveBeenCalledOnce();
+    expect(mocks.createIncident).toHaveBeenCalledTimes(2);
   });
 
   it("creates one multi-response incident and targets every selected responder service", async () => {
@@ -471,6 +473,32 @@ describe("incident workflow services", () => {
     expect(mocks.enqueueNotification).toHaveBeenCalledWith(expect.anything(), "INCIDENT_CREATED", expect.objectContaining({
       data: { incidentId: "storm-incident", attentionVersion: '1', serviceAttentionVersion: '1' },
     }), ["medic-user", "hazard-user"]);
+  });
+
+  it.each(['FIRE', 'MEDICAL', 'POLICE', 'HAZARD'] as const)('accepts distinct nearby %s reports but rejects a repeated submission key', async service => {
+    mocks.findUser.mockResolvedValue({ role: 'USER' });
+    mocks.verifyAsset.mockImplementation(async (publicId: string) => ({ publicId, format: 'jpg', bytes: 100, width: 10, height: 10 }));
+    mocks.findIncidentType.mockResolvedValue({ typeId: 'type-id', typeName: service });
+    mocks.findLocation.mockResolvedValue({ locationId: 'location-id' });
+    mocks.findNearbyIncidents.mockResolvedValue([{ incidentId: 'other-citizen-private-id', typeId: 'type-id', status: 'RESPONDING',
+      latitude: 10.25105, longitude: 123.94905, requestedServices: [service], type: { typeName: service } }]);
+    mocks.findSubmissionReceipt.mockResolvedValueOnce(null).mockResolvedValueOnce({ auditLogId: 'receipt' });
+    mocks.transaction.mockImplementation(async callback => callback({
+      $queryRaw: mocks.queryRaw, $executeRaw: mocks.executeRaw,
+      incident: { findMany: mocks.findNearbyIncidents, create: mocks.createIncident },
+      auditLog: { create: mocks.createAudit, findFirst: mocks.findSubmissionReceipt },
+      responder: { findMany: mocks.findResponders }, user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
+    }));
+    const input = { submissionId: '11000000-0000-4000-8000-000000000001', title: 'Distinct synthetic emergency',
+      typeId: 'type-id', locationId: 'location-id', barangayId: 'barangay-id', latitude: 10.251, longitude: 123.949,
+      proofAttachment: { publicId: 'emergency-incidents/citizen-id/new-photo', fileName: 'new.jpg' } };
+    expect((await CreateIncidentService(input, 'citizen-id')).code).toBe(201);
+    const repeated = await CreateIncidentService(input, 'citizen-id');
+    expect(repeated).toMatchObject({ code: 409, errorCode: 'DUPLICATE_SUBMISSION' });
+    expect(JSON.stringify(repeated)).not.toContain('other-citizen-private-id');
+    expect(mocks.createIncident).toHaveBeenCalledOnce();
+    expect(mocks.enqueueNotification).toHaveBeenCalledOnce();
+    expect(mocks.findSubmissionReceipt).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ actorId: 'citizen-id' }) }));
   });
 
   it("allows only the pending-to-verified transition", async () => {
