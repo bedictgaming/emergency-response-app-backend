@@ -23,6 +23,7 @@ jobs:
       - run: npm run build
       - run: npm run check:runtime
       - run: npm test -- --maxWorkers=2
+      - run: node --test scripts/dependency-audit-policy.test.mjs
       - run: node scripts/check-dependency-audit.mjs
       - run: docker build -t emergency-response-ci .
       - name: Import production-only runtime without contacting providers

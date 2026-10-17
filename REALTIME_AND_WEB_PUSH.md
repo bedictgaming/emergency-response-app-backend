@@ -31,4 +31,10 @@ Local backend build/native ESM checks, authenticated loopback Socket.IO contract
 
 Fresh publication qualification passes the backend build/native ESM check and all 853 ordinary tests, with 99 opt-in integration tests skipped. The matching frontend passes types, full lint and 74 contracts. These are local checks, not hosted CI or live acceptance.
 
-Production still defaults to the existing SSE frontend transport. Hosted authenticated WebSocket ingress and physical Android/Chrome closed-tab push receipt remain unverified. Fresh dependency-audit commands in both repositories find no runtime advisory but stop on the unchanged expired build-only braces exception. It is not renewed/bypassed by this source publication; do not describe audit-blocked hosted runs as green or deploy them on that basis. SMS is not implemented.
+Production still defaults to the existing SSE frontend transport. Hosted authenticated WebSocket ingress and physical Android/Chrome closed-tab push receipt remain unverified. The initial publication's audit failures are retained, not described as green. SMS is not implemented.
+
+## Explicit release approval (17 October 2026)
+
+After reviewing the remaining unpatched build-only advisory, the owner explicitly approves a temporary exception solely for GHSA-vfj7-8cjw-p6xm until **19 October 2026, 23:59 Asia/Manila** (`2026-10-19T15:59:00Z`) and requests live Web Push deployment while retaining development operation. This is not a dependency fix or a general audit exemption. Runtime advisories, unrelated build findings, unavailable audits and expiry still fail. Seven policy contracts exercise these boundaries in CI before the actual audit. All other build/test/native/browser/release gates remain required.
+
+Release preserves production's existing VAPID keys, enabled worker, gateway/host-only cookies and SSE frontend transport. No live key rotation, database migration, private report mutation or SMS configuration is included. Enablement requires an admin's explicit browser permission. Actual Main/assigned-department closed-tab Android receipt and OS sound must be verified on the owner's device after deployment; passing builds/mocked tests are not that evidence.

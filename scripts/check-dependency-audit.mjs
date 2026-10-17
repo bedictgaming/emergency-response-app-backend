@@ -13,9 +13,12 @@ const runtime = audit('--omit=dev');
 if (Object.keys(runtime.vulnerabilities).length) throw new Error('Runtime dependency advisories require review');
 const full = audit('');
 const allowed = 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm';
+// Owner-approved build-only review window: 19 Oct 2026, 23:59 Asia/Manila.
+// Runtime findings and unrelated build advisories remain hard failures.
+const exceptionExpiresAt = '2026-10-19T15:59:00Z';
 const findings = Object.values(full.vulnerabilities);
 const advisories = findings.flatMap(item => item.via.filter(via => typeof via === 'object'));
 if (findings.length && (!advisories.length || advisories.some(item => item.url !== allowed))) throw new Error('New build dependency advisory requires review');
-if (findings.length && Date.now() >= Date.parse('2026-10-17T00:00:00Z')) throw new Error('Temporary braces advisory exception expired; review upstream and renew explicitly or fix');
-console.log(JSON.stringify({ runtimeAdvisories: 0, buildAffectedPackages: findings.length, reviewBy: findings.length ? '2026-10-17' : null }));
+if (findings.length && Date.now() >= Date.parse(exceptionExpiresAt)) throw new Error('Temporary braces advisory exception expired; review upstream and renew explicitly or fix');
+console.log(JSON.stringify({ runtimeAdvisories: 0, buildAffectedPackages: findings.length, reviewBy: findings.length ? exceptionExpiresAt : null }));
 if (findings.length) console.warn('Known unpatched build-only braces advisory remains. Do not process untrusted glob patterns or represent this as fixed: ' + allowed);
