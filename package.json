@@ -43,6 +43,7 @@
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.21.0",
     "pino-http": "^11.0.0",
+    "socket.io": "4.8.4",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
@@ -62,6 +63,7 @@
     "cross-env": "^10.1.0",
     "prisma": "6.12.0",
     "supertest": "^7.2.2",
+    "socket.io-client": "4.8.4",
     "tsc-alias": "^1.8.17",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

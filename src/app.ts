@@ -78,7 +78,7 @@ app.use('/api', (_req, res, next) => {
   next();
 });
 // Root-mounted to sign/verify the original API path, including query and trailing slash.
-const gatewayGuard = createApiGatewayGuard({ required: ENV.API_GATEWAY_REQUIRED,
+export const gatewayGuard = createApiGatewayGuard({ required: ENV.API_GATEWAY_REQUIRED,
   secret: ENV.API_GATEWAY_SECRET, audience: ENV.API_GATEWAY_AUDIENCE });
 app.use((req, res, next) => isApiPath(req.path)
   ? gatewayGuard(req, res, next) : next());

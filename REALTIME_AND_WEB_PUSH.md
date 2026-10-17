@@ -1,0 +1,34 @@
+# Development candidate: Socket.IO and admin Web Push
+
+This source update is for the `development` branch. Publishing source is not a production deployment or approval to change live credentials, gateway configuration, notification workers or dependency-audit exceptions. Use the matching frontend candidate. The workspace's `MASTER_PROMPT.md` remains the canonical engineering reference.
+
+## Realtime transport
+
+- Socket.IO 4.8.4 attaches to the existing HTTP server at `/api/events/v1/socket.io`, WebSocket-only. SSE remains available at `/api/events/v1/stream`.
+- The upgrade reuses the same gateway guard/replay state, trusted-origin policy, current cookie/session authentication and process/account capacity as the existing HTTP/SSE boundary. It must not bypass the production gateway.
+- Current account status, session, expiry and role/department/Main authority are rechecked for events and heartbeats. Connections reauthenticate after at most 60 seconds. There are no client commands, client-selected rooms, private report payloads or tokens in socket URLs.
+- Events invalidate authorized HTTP reads; the database, existing write APIs, incident workflow and concurrency controls remain authoritative. The emitter is single-process, not a distributed replay bus or exactly-once guarantee.
+
+## Background notifications
+
+- Existing transactional outbox, device registration, relevance/privacy checks, fenced retry progress and notification worker are retained.
+- `GET /api/notifications/v1/web-push-key` advertises capability only when both VAPID keys and `BACKGROUND_JOBS_ENABLED=true` are present. Its public reason is `not-configured`, `worker-disabled` or null. Capability is not provider delivery or worker-liveness certification.
+- The matching shared admin header lets Main, Fire, Medical, Police and DRRMO explicitly opt in. Routing remains Main plus the assigned department(s), not every admin. Generic lock-screen hints contain no report evidence/location/identity.
+- Private VAPID keys stay in approved server-only configuration. Do not copy production keys for development. Logout/revocation/current authority and notification expiry/relevance still apply.
+- Workers process already queued jobs. Never enable them against an unreviewed existing database. Evidence deletion and orphan sweeping remain disabled during local notification tests.
+
+## Controlled local test
+
+The owner's workspace uses a separately approved synthetic database, new development VAPID/JWT keys and a loopback-only runtime. Its local operator/private files are not part of this public source commit. The ordinary primary development bootstrap remains worker-disabled; Git checkout alone does not activate notifications.
+
+Use the matching API on `http://localhost:8000` and frontend on `http://localhost:3000`; do not mix localhost and 127.0.0.1 cookies. Enable `NEXT_PUBLIC_ENABLE_DEV_PUSH=true` only for the documented loopback push-only frontend worker. It must not intercept/cache Next development assets or API data. Never use production data/providers as a shortcut.
+
+On each admin's separate normal browser profile/device: sign in, enable notifications, Allow, then close the tab without logging out. Submit one clearly synthetic report from a separate citizen session. Record actual Main/assigned-department receipt and unrelated-department nonreceipt. Keep the backend, browser/PC and internet available. An Android phone cannot access the laptop's localhost; plain LAN HTTP is not a secure phone push setup. Device-reachable HTTPS needs separate authorization/configuration.
+
+## Qualification and remaining gates
+
+Local backend build/native ESM checks, authenticated loopback Socket.IO contracts and notification capability/audience regressions passed during development. Database/provider operations in ordinary unit suites are mocked unless explicitly identified otherwise. Frontend transport/cache/push-worker and browser contracts are recorded separately. Local readiness and a development photo API ping are not a citizen submission, FCM/OS receipt, sound guarantee or participant UAT.
+
+Fresh publication qualification passes the backend build/native ESM check and all 853 ordinary tests, with 99 opt-in integration tests skipped. The matching frontend passes types, full lint and 74 contracts. These are local checks, not hosted CI or live acceptance.
+
+Production still defaults to the existing SSE frontend transport. Hosted authenticated WebSocket ingress and physical Android/Chrome closed-tab push receipt remain unverified. Fresh dependency-audit commands in both repositories find no runtime advisory but stop on the unchanged expired build-only braces exception. It is not renewed/bypassed by this source publication; do not describe audit-blocked hosted runs as green or deploy them on that basis. SMS is not implemented.

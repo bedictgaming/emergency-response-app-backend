@@ -1,10 +1,14 @@
-import app from '@/app';
+import app, { gatewayGuard } from '@/app';
+import { createServer } from 'node:http';
+import { attachSocketEvents } from '@/lib/socket-events';
 import { ENV } from '@/config/env';
 import { processPendingJobs, sweepOrphanedEvidence } from '@/lib/jobs';
 
 const startServer = () => {
   try {
-    app.listen(ENV.PORT, () => {
+    const server = createServer(app);
+    attachSocketEvents(server, gatewayGuard);
+    server.listen(ENV.PORT, () => {
       console.log('--------------------------------------------------');
       if (ENV.BACKGROUND_JOBS_ENABLED) {
         void processPendingJobs().catch(error => console.error('[background-jobs] Unexpected worker failure:', error));

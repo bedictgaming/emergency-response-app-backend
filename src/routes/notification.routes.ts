@@ -21,13 +21,15 @@ router.get('/v1/:id/relevance', auth.execute, async (req, res) => {
 // can create a subscription, and exposing it does not grant notification
 // access. Subscription registration remains authenticated below.
 router.get("/v1/web-push-key", (_req, res) => {
-  const enabled = Boolean(ENV.WEB_PUSH_PUBLIC_KEY && ENV.WEB_PUSH_PRIVATE_KEY);
+  const configured = Boolean(ENV.WEB_PUSH_PUBLIC_KEY && ENV.WEB_PUSH_PRIVATE_KEY);
+  const enabled = configured && ENV.BACKGROUND_JOBS_ENABLED;
   // Push is optional in local/staging environments. Report capability as data
   // instead of emitting a 503 that Axios retries and pino logs as a server error.
   return res.status(200).json({
     code: 200,
     status: "success",
-    data: { enabled, publicKey: enabled ? ENV.WEB_PUSH_PUBLIC_KEY : null },
+    data: { enabled, publicKey: enabled ? ENV.WEB_PUSH_PUBLIC_KEY : null,
+      reason: !configured ? 'not-configured' : !ENV.BACKGROUND_JOBS_ENABLED ? 'worker-disabled' : null },
   });
 });
 const schema = z.object({ body: z.object({ token: z.string().min(20).max(4096), platform: z.literal("web") }) });

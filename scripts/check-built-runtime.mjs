@@ -5,4 +5,5 @@ process.env.DATABASE_URL = 'postgresql://runtime:runtime@localhost:5432/runtime_
 await Promise.all([
   import('../dist/app.js'),
   import('../dist/lib/jobs.js'),
+  import('../dist/lib/socket-events.js'),
 ]);

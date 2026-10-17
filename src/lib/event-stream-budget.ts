@@ -13,3 +13,6 @@ export function createEventStreamBudget(totalLimit = 200, userLimit = 6) {
     };
   };
 }
+
+// SSE and Socket.IO share the same process/account capacity, not separate quotas.
+export const acquireEmergencyStream = createEventStreamBudget();

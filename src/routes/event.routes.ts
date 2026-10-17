@@ -4,11 +4,11 @@ import { AuthMiddleware } from '@/middleware/auth-middleware';
 import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
 import { canReceiveEvent } from '@/lib/event-access';
 import { prisma } from '@/lib/prisma';
-import { createEventStreamBudget } from '@/lib/event-stream-budget';
+import { acquireEmergencyStream } from '@/lib/event-stream-budget';
 import type { JwtPayload } from '@/lib/jwt';
 
 const router = Router(), auth = new AuthMiddleware();
-const acquire = createEventStreamBudget();
+const acquire = acquireEmergencyStream;
 const limiter = rateLimit({ windowMs: 60_000, limit: 30, keyGenerator: req => (req.user as JwtPayload).sub, standardHeaders: 'draft-8', legacyHeaders: false });
 
 const streamEvents = (req: Request, res: Response) => {
