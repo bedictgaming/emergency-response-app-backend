@@ -50,6 +50,17 @@ suite('actual database attention/RBAC/workflow contracts', () => {
     if (typeId) await prisma.incidentType.delete({ where: { typeId } });
     await prisma.$disconnect();
   }, 60000);
+  it('returns database-owned observedAt through authorized HTTP, including empty department queues', async () => {
+    const [before] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    for (const index of [0, 1, 2, 3, 4]) {
+      const response = await getQueue(index); expect(response.status).toBe(200);
+      const observedAt = Date.parse(response.body.data.observedAt);
+      const [after] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+      expect(Number.isFinite(observedAt)).toBe(true);
+      expect(observedAt).toBeGreaterThanOrEqual(before.now.getTime());
+      expect(observedAt).toBeLessThanOrEqual(after.now.getTime());
+    }
+  });
   it('returns all selected-service scopes, no unrelated/citizen access, no resolved reports, and an explicit >50 backlog', async () => {
     for (const index of [0,1,2]) {
       const response = await getQueue(index); expect(response.status).toBe(200);

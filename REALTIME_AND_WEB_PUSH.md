@@ -4,6 +4,12 @@ This source update is for the `development` branch. Publishing source is not a p
 
 ## Realtime transport
 
+### New-report-only siren metadata
+
+The owner approves deploying the matching new-report alert refinement. GET /api/incidents/v1/attention now includes observedAt from PostgreSQL CURRENT_TIMESTAMP in the existing authorized RepeatableRead transaction, even for empty queues. This additive read-only field does not change queue scope, the fifty-item bound/hasMore, report state, versioned acknowledgement or Main department handoff. Native provider-free PostgreSQL HTTP contracts cover the database-owned timestamp for all five admin scopes, including empty departments. No schema migration or new endpoint is introduced.
+
+The matching client uses a quiet first-success baseline and only an unseen report ID reported after that baseline automatically alarms. Old queued/paginated records, refresh/reconnect/navigation and status/version/reopen changes do not impersonate new submissions. Existing outstanding work remains visible for manual review and deliberate Unmute; no automatic acknowledgement is performed. Publish/accept this backend metadata before the matching frontend. Preserve production SSE, development Socket.IO, Web Push/outbox/audiences/worker/key/configuration and every existing release gate. Source publication and mocked/native contract tests alone are not production/authenticated operator-device or UAT acceptance; consult the workspace MASTER_PROMPT.md for current release status.
+
 - Socket.IO 4.8.4 attaches to the existing HTTP server at `/api/events/v1/socket.io`, WebSocket-only. SSE remains available at `/api/events/v1/stream`.
 - The upgrade reuses the same gateway guard/replay state, trusted-origin policy, current cookie/session authentication and process/account capacity as the existing HTTP/SSE boundary. It must not bypass the production gateway.
 - Current account status, session, expiry and role/department/Main authority are rechecked for events and heartbeats. Connections reauthenticate after at most 60 seconds. There are no client commands, client-selected rooms, private report payloads or tokens in socket URLs.

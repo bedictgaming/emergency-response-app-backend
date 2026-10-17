@@ -35,6 +35,10 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
     const fresh = await currentActor(tx, actor);
     const scope = fresh && attentionScope(fresh, requested);
     if (!fresh || !scope) return null;
+    // Server-owned baseline for presentation-only new-report alerts. A client
+    // refresh must not turn pre-existing outstanding work into a new submission.
+    const [clock] = await tx.$queryRaw<Array<{ observedAt: Date }>>`SELECT CURRENT_TIMESTAMP AS "observedAt"`;
+    const observedAt = clock.observedAt.toISOString();
     const mainMonitoring = isMainAdministrator(fresh);
     const service = scope === 'MAIN' ? Prisma.sql`TRUE` : Prisma.sql`(
       ((s.status IS NULL OR s.status = 'RESPONDING') AND ${scope}::"ResponseService" = ANY(i.requested_services)) OR
@@ -61,7 +65,7 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
       reporter: { select: { name: true } },
     } });
     const byId = new Map(rows.map(item => [item.incidentId, item]));
-    return { scope, acknowledgementMode: mainMonitoring ? 'DEPARTMENT_HANDOFF' as const : 'PERSONAL' as const,
+    return { scope, observedAt, acknowledgementMode: mainMonitoring ? 'DEPARTMENT_HANDOFF' as const : 'PERSONAL' as const,
       hasMore: ids.length > 50, items: page.map(item => ({ ...byId.get(item.incidentId)!, version: item.version, scope })) };
   }, { isolationLevel: 'RepeatableRead' });
 }

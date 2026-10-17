@@ -7,7 +7,7 @@ const actor = { sub: 'staff', sessionId: 'session', type: 'access' as const, rol
 const incident = { incidentId: '00000000-0000-0000-0000-000000000001', status: 'RESPONDING', verificationStatus: 'VERIFIED', attentionVersion: 2, serviceResponses: [{ service: 'FIRE', status: 'RESOLVED', attentionVersion: 1 }, { service: 'MEDICAL', status: 'RESPONDING', attentionVersion: 2 }] };
 beforeEach(() => {
   vi.resetAllMocks(); mocks.user.mockResolvedValue({ ...actor, status: 'ACTIVE', tokens: [{ id: 'session' }] });
-  mocks.query.mockResolvedValue([]); mocks.list.mockResolvedValue([]); mocks.incident.mockResolvedValue(incident);
+  mocks.query.mockImplementation(async sql => (sql.text ?? sql.join('')).includes('CURRENT_TIMESTAMP') ? [{ observedAt: new Date('2026-10-17T00:00:00.000Z') }] : []); mocks.list.mockResolvedValue([]); mocks.incident.mockResolvedValue(incident);
   mocks.mainAdmins.mockResolvedValue([]);
   mocks.transaction.mockImplementation(async callback => callback({ $queryRaw: mocks.query, user: { findUnique: mocks.user, findMany: mocks.mainAdmins }, incident: { findMany: mocks.list, findFirst: mocks.incident }, incidentAcknowledgement: { upsert: mocks.ack, findUnique: mocks.findAck }, auditLog: { create: mocks.audit } }));
 });
@@ -26,10 +26,11 @@ it.each([{ status: 'RESOLVED' }, { status: 'CLOSED' }, { verificationStatus: 'PE
 });
 it('returns 50 oldest queued items with explicit remaining work, not a newest-ten window', async () => {
   const ids = Array.from({ length: 51 }, (_, index) => ({ incidentId: String(index), version: 1 }));
-  mocks.query.mockResolvedValue(ids); mocks.list.mockResolvedValue(ids.map(item => ({ incidentId: item.incidentId })));
+  mocks.query.mockImplementation(async sql => (sql.text ?? sql.join('')).includes('CURRENT_TIMESTAMP') ? [{ observedAt: new Date('2026-10-17T00:00:00.000Z') }] : ids); mocks.list.mockResolvedValue(ids.map(item => ({ incidentId: item.incidentId })));
   const result = await listIncidentAttention(actor);
   expect(result?.items).toHaveLength(50); expect(result?.hasMore).toBe(true); expect(result?.items[0].incidentId).toBe('0');
-  const sql = mocks.query.mock.calls[0][0]; expect(sql.text).toContain('NOT EXISTS'); expect(sql.text).toContain('ORDER BY i.reported_at ASC'); expect(sql.text).toContain('LIMIT 51');
+  expect(result?.observedAt).toBe('2026-10-17T00:00:00.000Z');
+  const sql = mocks.query.mock.calls[1][0]; expect(sql.text).toContain('NOT EXISTS'); expect(sql.text).toContain('ORDER BY i.reported_at ASC'); expect(sql.text).toContain('LIMIT 51');
   expect(sql.values).toContain('staff'); expect(sql.values).toContain('FIRE');
 });
 it('rechecks role before querying private attention data', async () => {
@@ -86,6 +87,13 @@ it('Main monitoring uses global handoff suppression even in a department-filtere
   mocks.user.mockResolvedValue({ ...actor, department: 'MAIN', isMainAdmin: true, status: 'ACTIVE', tokens: [{ id: 'session' }] });
   const page = await listIncidentAttention({ ...actor, department: 'MAIN', isMainAdmin: true }, 'FIRE');
   expect(page).toMatchObject({ scope: 'FIRE', acknowledgementMode: 'DEPARTMENT_HANDOFF' });
-  const sql = mocks.query.mock.calls[0][0];
+  const sql = mocks.query.mock.calls[1][0];
   expect(sql.values).toContain('MAIN'); expect(sql.text).toContain('a.version = i.attention_version');
+});
+
+it('returns a database-owned baseline even for an empty queue, without workflow writes', async () => {
+  const result = await listIncidentAttention(actor);
+  expect(result).toMatchObject({ observedAt: '2026-10-17T00:00:00.000Z', items: [], hasMore: false });
+  expect(mocks.query.mock.calls[0][0].join('')).toContain('CURRENT_TIMESTAMP');
+  expect(mocks.ack).not.toHaveBeenCalled(); expect(mocks.audit).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled();
 });
