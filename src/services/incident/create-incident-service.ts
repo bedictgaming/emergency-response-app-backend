@@ -21,6 +21,7 @@ import { protectIncidentEvidence } from "@/lib/evidence";
 import { resolveBarangayFromCoordinates } from "@/lib/barangay-boundaries";
 import { departmentService } from "@/domain/department-access.policy";
 import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/permissions.policy";
+import { recordCitizenReportSequence } from '@/lib/citizen-report-sequence';
 
 const incidentRepository = new IncidentRepository();
 
@@ -267,7 +268,7 @@ export const CreateIncidentService = async (
     }
 
     // 5. Create the incident and its verified proof atomically.
-    const incident = await prisma.$transaction(async (tx) => {
+    const { incident, accountDeactivated } = await prisma.$transaction(async (tx) => {
       let approvedDuplicateOverride = false;
       // Preserve reporter serialization for evidence checks; there is no daily quota.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${reportedBy} FOR UPDATE`;
@@ -396,7 +397,13 @@ export const CreateIncidentService = async (
           data: { incidentId: created.incidentId, attentionVersion: '1', serviceAttentionVersion: '1' },
         }, recipientIds);
       }
-      return created;
+      // Count only accepted distinct citizen reports, after all validation and
+      // durable replay/evidence checks. The third still routes normally; its
+      // report, outbox, account restriction and session revocation commit together.
+      const accountDeactivated = requiresProof
+        ? await recordCitizenReportSequence(tx, reportedBy, { incidentId: created.incidentId, services: targetResponseServices })
+        : false;
+      return { incident: created, accountDeactivated };
     });
     proofPersisted = Boolean(verifiedProof);
 
@@ -406,7 +413,7 @@ export const CreateIncidentService = async (
       code: 201,
       status: "success",
       message: "Incident reported successfully",
-      data: { incident: protectIncidentEvidence(incident) },
+      data: { incident: protectIncidentEvidence(incident), ...(accountDeactivated && { accountDeactivated: true }) },
     };
   } catch (error) {
     if (error instanceof ReporterAccessWithdrawnError) {

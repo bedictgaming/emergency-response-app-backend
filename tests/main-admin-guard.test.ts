@@ -13,7 +13,7 @@ let tx: ReturnType<typeof transactionMock>;
 function transactionMock() {
   return { $queryRaw: vi.fn().mockResolvedValue([]),
     user: { findUnique: vi.fn().mockResolvedValue(main), count: vi.fn().mockResolvedValue(1), update: vi.fn().mockResolvedValue(main) },
-    token: { updateMany: vi.fn() }, responder: { updateMany: vi.fn() }, auditLog: { create: vi.fn() } };
+    token: { updateMany: vi.fn() }, responder: { updateMany: vi.fn() }, auditLog: { create: vi.fn(), findFirst: vi.fn().mockResolvedValue(null) } };
 }
 function target(overrides: Partial<ManagedUser> = {}) {
   tx.user.findUnique.mockResolvedValueOnce(main).mockResolvedValueOnce({ ...main, id: 'target', ...overrides });
@@ -85,6 +85,13 @@ describe('main administrator continuity', () => {
     target({ role: Role.USER, department: null, isMainAdmin: false, status: UserStatus.INACTIVE });
     expect((await UpdateUserStatusService('target', UserStatus.ACTIVE, 'main')).code).toBe(200);
     expect(tx.token.updateMany).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({ actorId: 'main', action: 'CITIZEN_REPORT_SEQUENCE_STATE',
+      metadata: { version: 1, reports: [], resetReason: 'REACTIVATED' } }) });
+  });
+  it('an ACTIVE-to-ACTIVE no-op cannot erase a citizen report streak', async () => {
+    target({role:Role.USER,department:null,isMainAdmin:false});
+    expect((await UpdateUserStatusService('target',UserStatus.ACTIVE,'main')).code).toBe(200);
+    expect(tx.auditLog.findFirst).not.toHaveBeenCalled();
   });
   it('does not count inactive MAIN or non-MAIN targets as the last active MAIN', async () => {
     for (const existing of [{ ...main, status: UserStatus.INACTIVE }, { ...main, department: Department.FIRE, isMainAdmin: false }]) {

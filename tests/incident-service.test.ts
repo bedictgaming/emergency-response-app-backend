@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   claimIncident: vi.fn(),
   createAudit: vi.fn(),
   findSubmissionReceipt: vi.fn(),
+  findSequenceReceipt: vi.fn(),
   findResponders: vi.fn(),
   findStaff: vi.fn(),
   sendPush: vi.fn(),
@@ -30,6 +31,11 @@ const mocks = vi.hoisted(() => ({
   enqueueNotification: vi.fn(),
   enqueueCleanup: vi.fn(),
 }));
+
+function receiptLookup(query: { where: { action: unknown } }) {
+  return query.where.action === 'CITIZEN_REPORT_SEQUENCE_STATE'
+    ? mocks.findSequenceReceipt(query) : mocks.findSubmissionReceipt(query);
+}
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -45,7 +51,7 @@ vi.mock("@/lib/prisma", () => ({
       findFirst: mocks.findAttachment,
       findUnique: mocks.findAttachmentByPublicId,
     },
-    auditLog: { create: mocks.createAudit },
+    auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     responder: { findMany: mocks.findResponders },
     barangay: { findUnique: mocks.findBarangayById },
     $transaction: mocks.transaction,
@@ -73,6 +79,7 @@ describe("incident workflow services", () => {
       return user ? { status: 'ACTIVE', department: null, isMainAdmin: false, ...user } : null;
     });
     mocks.findSubmissionReceipt.mockResolvedValue(null);
+    mocks.findSequenceReceipt.mockResolvedValue(null);
     mocks.createIncident.mockImplementation(async ({ data }) => ({ incidentId: 'new-incident', ...data }));
     mocks.countIncidents.mockResolvedValue(0);
     mocks.findAttachment.mockResolvedValue(null);
@@ -90,7 +97,7 @@ describe("incident workflow services", () => {
     mocks.findNearbyIncidents.mockResolvedValue([]);
     mocks.transaction.mockImplementation(async (callback) => callback({
       incident: { updateMany: mocks.claimIncident, findUniqueOrThrow: mocks.updateIncident },
-      auditLog: { create: mocks.createAudit },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     }));
     mocks.claimIncident.mockResolvedValue({ count: 1 });
   });
@@ -165,7 +172,7 @@ describe("incident workflow services", () => {
       incident: { findFirst: vi.fn().mockResolvedValue(null), create: mocks.createIncident },
       responder: { findMany: mocks.findResponders },
       user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
-      auditLog: { create: mocks.createAudit },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     }));
 
     const result = await CreateIncidentService({
@@ -261,7 +268,7 @@ describe("incident workflow services", () => {
       },
       responder: { findMany: mocks.findResponders },
       user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
-      auditLog: { create: mocks.createAudit },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     }));
 
     const result = await CreateIncidentService({
@@ -330,7 +337,7 @@ describe("incident workflow services", () => {
       },
       responder: { findMany: mocks.findResponders },
       user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
-      auditLog: { create: mocks.createAudit },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     }));
 
     const result = await CreateIncidentService({
@@ -383,7 +390,7 @@ describe("incident workflow services", () => {
       incident: { findMany: mocks.findNearbyIncidents, create: mocks.createIncident },
       responder: { findMany: mocks.findResponders },
       user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
-      auditLog: { create: mocks.createAudit },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     }));
     const request = {
       title: "Second fire in same building",
@@ -443,7 +450,7 @@ describe("incident workflow services", () => {
       },
       responder: { findMany: mocks.findResponders },
       user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
-      auditLog: { create: mocks.createAudit },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
     }));
 
     const result = await CreateIncidentService({
@@ -486,7 +493,7 @@ describe("incident workflow services", () => {
     mocks.transaction.mockImplementation(async callback => callback({
       $queryRaw: mocks.queryRaw, $executeRaw: mocks.executeRaw,
       incident: { findMany: mocks.findNearbyIncidents, create: mocks.createIncident },
-      auditLog: { create: mocks.createAudit, findFirst: mocks.findSubmissionReceipt },
+      auditLog: { create: mocks.createAudit, findFirst: receiptLookup },
       responder: { findMany: mocks.findResponders }, user: { findUnique: mocks.findLockedUser, findMany: mocks.findStaff },
     }));
     const input = { submissionId: '11000000-0000-4000-8000-000000000001', title: 'Distinct synthetic emergency',

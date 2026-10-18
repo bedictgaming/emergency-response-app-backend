@@ -1,6 +1,7 @@
 import { Department, Role } from "@/generated/prisma";
 import { isMainAdministrator } from '@/domain/permissions.policy';
 import { ensureMainAdministratorRemains, UserAdministrationError, userAdministrationFailure, withUserAdministration } from '@/lib/user-administration';
+import { resetCitizenReportSequence } from '@/lib/citizen-report-sequence';
 
 export const UpdateUserRoleService = async (id: string, role: Role, actorId?: string, department?: Department | null, isMainAdmin = false) => {
   try {
@@ -23,6 +24,9 @@ export const UpdateUserRoleService = async (id: string, role: Role, actorId?: st
       await ensureMainAdministratorRemains(tx, existing, { ...assignment, status: existing.status });
       const user = await tx.user.update({ where: { id }, data: assignment,
         select: { id: true, name: true, email: true, role: true, department: true, isMainAdmin: true, updatedAt: true } });
+      if (existing.role !== role && (existing.role === Role.USER || role === Role.USER)) {
+        await resetCitizenReportSequence(tx, id, actorId!, 'ROLE_CHANGED');
+      }
       await tx.auditLog.create({ data: { actorId, action: 'USER_ROLE_CHANGED', entityType: 'User', entityId: id,
         metadata: { from: existing.role, to: role, fromDepartment: existing.department, department: assignment.department,
           fromIsMainAdmin: existing.isMainAdmin, isMainAdmin: assignment.isMainAdmin } } });
