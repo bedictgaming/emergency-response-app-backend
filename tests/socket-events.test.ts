@@ -105,7 +105,9 @@ it('keeps department and citizen ownership in the real event access query', asyn
       { requestedServices: { has: 'FIRE' } },
     ]) }),
   ]));
-  expect(fireReceived).not.toHaveBeenCalled(); expect(citizenReceived).not.toHaveBeenCalled();
+  expect(fireReceived).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(citizenReceived).toHaveBeenCalledWith({ type: 'nearby.changed' }));
+  expect(JSON.stringify(citizenReceived.mock.calls)).not.toContain(entityId);
 });
 it.each([
   ['FIRE', 'FIRE'], ['MEDICAL', 'MEDICAL'], ['POLICE', 'POLICE'], ['DRRMO', 'HAZARD'],

@@ -20,6 +20,8 @@ import { z } from 'zod';
 import { ResponseService } from '@/generated/prisma';
 import type { JwtPayload } from '@/lib/jwt';
 import { acknowledgeIncidentAttention, listIncidentAttention } from '@/services/incident/incident-attention-service';
+import { nearbyDetectionSchema } from '@/validation/incident/nearby-detection.schema';
+import { NearbyDetectionService } from '@/services/incident/nearby-detection-service';
 
 // Initialize
 const router = Router();
@@ -65,6 +67,14 @@ router.post("/v1/:id/review-flags/:flagId/correction", authMiddleware.execute, r
 router.post('/v1/:id/cancel-confirmed-false', authMiddleware.execute, requireMainAdmin, requirePermission(Permission.IncidentManageAll), validateSchema(cancelFalseIncidentSchema), requireIncidentAccess, incidentController.cancelFalse);
 
 // Protected Routes — any authenticated user can report an incident
+const detectionLimiter = rateLimit({ windowMs: 60_000, limit: 150,
+  keyGenerator: req => (req.user as JwtPayload).sub, standardHeaders: 'draft-8', legacyHeaders: false });
+router.post('/v1/nearby-detection', authMiddleware.execute, permittedRole([Role.USER, Role.ADMIN, Role.DISPATCHER]),
+  detectionLimiter, validateSchema(nearbyDetectionSchema), async (req, res) => {
+    const result = await NearbyDetectionService(req.body, req.user as JwtPayload);
+    return res.status(result.code).json(result);
+  });
+
 router.post(
   "/v1/nearby-check",
   authMiddleware.execute,

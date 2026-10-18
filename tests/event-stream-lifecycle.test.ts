@@ -7,8 +7,8 @@ vi.mock('@/lib/events', () => ({ subscribeEmergencyEvents: mocks.subscribe }));
 import router from '@/routes/event.routes';
 const handler = (router as any).stack.find((layer: any) => layer.route?.path === '/v1/stream').route.stack.at(-1).handle;
 const actor = { sub: 'staff', role: 'ADMIN', department: 'MAIN', isMainAdmin: true, sessionId: 'session', exp: Math.floor(Date.now() / 1000) + 900 };
-function stream() {
-  const req = Object.assign(new EventEmitter(), { user: actor });
+function stream(identity = actor) {
+  const req = Object.assign(new EventEmitter(), { user: identity });
   const res = Object.assign(new EventEmitter(), { setHeader: vi.fn(), flushHeaders: vi.fn(), write: vi.fn(() => true), end: vi.fn(), status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() });
   handler(req, res); return { req, res, close: () => req.emit('close') };
 }
@@ -29,8 +29,18 @@ it('terminates a slow/backpressured client instead of accumulating output', asyn
   await vi.waitFor(() => expect(current.res.end).toHaveBeenCalled()); expect(mocks.unsubscribe).toHaveBeenCalledOnce(); current.close();
 });
 it('limits six active connections per account and releases closed slots', () => {
-  const opened = Array.from({ length: 6 }, stream), rejected = stream();
+  const opened = Array.from({ length: 6 }, () => stream()), rejected = stream();
   expect(rejected.res.status).toHaveBeenCalledWith(429); expect(mocks.subscribe).toHaveBeenCalledTimes(6);
   opened[0].close(); const next = stream(); expect(next.res.status).not.toHaveBeenCalled();
   opened.forEach(item => item.close()); next.close();
+});
+it('SSE sends only a generic nearby hint, never a peer incident identifier', async () => {
+  const citizen = { ...actor, role: 'USER' };
+  mocks.user.mockResolvedValue({ ...citizen, status: 'ACTIVE', tokens: [{ id: 'session' }] });
+  mocks.access.mockResolvedValue(false);
+  const current = stream(citizen), notify = mocks.subscribe.mock.calls[0][0];
+  notify({ type: 'incident.updated', entityId: 'private-peer-id', occurredAt: 'private-time' });
+  await vi.waitFor(() => expect(current.res.write).toHaveBeenCalledTimes(2));
+  expect(current.res.write.mock.calls[1][0]).toBe('event: nearby.changed\ndata: {"type":"nearby.changed"}\n\n');
+  current.close();
 });

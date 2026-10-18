@@ -10,7 +10,7 @@ import { ENV } from '@/config/env';
 import { prisma } from '@/lib/prisma';
 import type { JwtPayload } from '@/lib/jwt';
 import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
-import { canReceiveEvent } from '@/lib/event-access';
+import { presentEmergencyEvent } from '@/lib/present-emergency-event';
 import { acquireEmergencyStream } from '@/lib/event-stream-budget';
 
 export const SOCKET_EVENTS_PATH = '/api/events/v1/socket.io';
@@ -107,13 +107,14 @@ export function attachSocketEvents(server: HttpServer, gatewayGuard: RequestHand
           || account.department !== actor.department || account.isMainAdmin !== actor.isMainAdmin) {
           finish(); return;
         }
-        if (event && await canReceiveEvent({ ...actor, ...account }, event)) {
+        const outgoing = event ? await presentEmergencyEvent({ ...actor, ...account }, event) : null;
+        if (outgoing) {
           if (ended) return;
           if (!socket.conn.transport.writable) {
             finish(); return;
           }
           // No report body, evidence, coordinates, cookies or client-selected rooms.
-          socket.emit('emergency.event', { type: event.type, entityId: event.entityId, occurredAt: event.occurredAt });
+          socket.emit('emergency.event', outgoing);
         }
       } catch { finish(); }
       finally {

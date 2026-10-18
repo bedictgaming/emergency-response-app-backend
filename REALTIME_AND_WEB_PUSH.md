@@ -4,6 +4,12 @@ This source update is for the `development` branch. Publishing source is not a p
 
 ## Realtime transport
 
+### Nearby submitted-report detection (local candidate, 18 October)
+
+`POST /api/incidents/v1/nearby-detection` is an authenticated read-only/no-store lookup, rate-limited to 150 requests/minute/account. Strict citizen bodies contain `{kind:'citizen',latitude,longitude,services}`; strict operational bodies contain only `{kind:'department',incidentId}`. The server owns the latter's authorized selected-report center and matching services. Both center and candidates retain current department/Main scope. Exact 100m haversine checks follow a bounded spatial prefilter in RepeatableRead; reject/merge/confirmed-false/completed work is excluded. Citizens receive only presence/unknown/completeness, excluding their own reports, with no peer IDs, counts, coordinates or evidence. Operations receive at most 50 minimal authorized pins; full report/evidence inspection still uses the existing guarded read. A 200-candidate limit with lookahead must return incomplete/unknown rather than a false all-clear.
+
+The existing stream account/session/expiry/backpressure checks now call a per-actor presenter. Authorized ordinary events are unchanged. An otherwise unreadable incident event may produce only `{type:'nearby.changed'}` for a citizen, without a peer identifier or timestamp. This generic recheck hint may reflect activity anywhere; it is not proof of a nearby incident and is not an ordinary report/siren event. The following authenticated spatial read is authoritative. No normal event ACL, client rooms/commands, transport configuration, Web Push/outbox/worker, acknowledgement, submission/routing, duplicate protection or schema is changed. Publish the matching backend before any future frontend release; this paragraph does not authorize deployment or certify production/provider/device behavior.
+
 ### New-report-only siren metadata
 
 The owner approves deploying the matching new-report alert refinement. GET /api/incidents/v1/attention now includes observedAt from PostgreSQL CURRENT_TIMESTAMP in the existing authorized RepeatableRead transaction, even for empty queues. This additive read-only field does not change queue scope, the fifty-item bound/hasMore, report state, versioned acknowledgement or Main department handoff. Native provider-free PostgreSQL HTTP contracts cover the database-owned timestamp for all five admin scopes, including empty departments. No schema migration or new endpoint is introduced.

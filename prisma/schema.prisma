@@ -443,8 +443,8 @@ model IncidentAcknowledgement {
   scope      String
   version    Int
   createdAt  DateTime @default(now()) @map("created_at")
-  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  incident   Incident @relation(fields: [incidentId], references: [incidentId], onDelete: Cascade)
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  incident   Incident @relation(fields: [incidentId], references: [incidentId], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([userId, incidentId, scope])
   @@map("incident_acknowledgements")

@@ -2,7 +2,7 @@ import { Request, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { AuthMiddleware } from '@/middleware/auth-middleware';
 import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
-import { canReceiveEvent } from '@/lib/event-access';
+import { presentEmergencyEvent } from '@/lib/present-emergency-event';
 import { prisma } from '@/lib/prisma';
 import { acquireEmergencyStream } from '@/lib/event-stream-budget';
 import type { JwtPayload } from '@/lib/jwt';
@@ -36,7 +36,7 @@ const streamEvents = (req: Request, res: Response) => {
       if (!account || account.status !== 'ACTIVE' || !account.tokens.length || (actor.exp ?? 0) <= Date.now() / 1000
         || account.role !== actor.role || account.department !== actor.department || account.isMainAdmin !== actor.isMainAdmin) { finish(); return; }
       const fresh = { ...actor, ...account };
-      if (event) { if (await canReceiveEvent(fresh, event)) write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`); }
+      if (event) { const outgoing = await presentEmergencyEvent(fresh, event); if (!ended && outgoing) write(`event: ${outgoing.type}\ndata: ${JSON.stringify(outgoing)}\n\n`); }
       else write(': heartbeat\n\n');
     } catch { finish(); }
     finally {
