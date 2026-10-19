@@ -7,6 +7,9 @@ import { nearbyIncidentCandidateQuery, distanceBetweenCoordinatesMeters, DUPLICA
 import { overlappingResponseServices, responseServicesForIncident } from '@/domain/response-services.policy';
 import { resolveBarangayFromCoordinates } from '@/lib/barangay-boundaries';
 import type { NearbyDetectionInput } from '@/validation/incident/nearby-detection.schema';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { departmentService } from '@/domain/department-access.policy';
+import { isMainAdministrator } from '@/domain/permissions.policy';
 
 const activeStatuses = ['OPEN', 'ACTIVE', 'RESPONDING'];
 const candidateLimit = 200, markerLimit = 50;
@@ -54,7 +57,13 @@ export async function NearbyDetectionService(input: NearbyDetectionInput, actor:
       const complete = candidates.length <= candidateLimit && (citizen || matches.length <= markerLimit);
       // A bounded scan cannot claim "none" when it has not checked every candidate.
       const nearby = matches.length ? true : complete ? false : null;
-      const data = citizen ? { ...base, nearby, complete } : { ...base, nearby, complete, items: matches.slice(0, markerLimit) };
+      const pending = !citizen && anchor && nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({
+        where: { parentIncidentId: anchor.incidentId, status: 'PENDING', incidentId: { in: matches.slice(0, markerLimit).map(item => item.incidentId) },
+          ...(!isMainAdministrator(actor) && { service: departmentService(actor.department) }), incident: scope },
+        select: { incidentId: true },
+      }) : undefined;
+      const data = citizen ? { ...base, nearby, complete } : { ...base, nearby, complete, items: matches.slice(0, markerLimit),
+        ...(pending && { reviewIncidentIds: [...new Set(pending.map(row => row.incidentId))] }) };
       return { code: 200, data };
     }, { isolationLevel: 'RepeatableRead' });
   } catch { return { code: 503, message: 'Nearby detection unavailable. Reports remain unchanged.' }; }

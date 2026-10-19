@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { responderIncidentScope } from '@/lib/incident-scope';
 import { reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 interface CreateIncidentData {
   title: string;
@@ -87,7 +88,8 @@ export class IncidentRepository {
         AND: [filters?.scope ?? {}, ...historyScope(filters),
           ...(filters?.responseService && filters.serviceStatuses?.length ? [{
             OR: [
-              ...(filters.serviceStatuses.includes('CANCELLED') ? [{ status: 'CANCELLED' as const }] : []),
+              ...(filters.serviceStatuses.includes('CANCELLED') ? [{ status: 'CANCELLED' as const },
+                ...(nearbyReviewEnabled() ? [{ serviceResponses: { some: { service: filters.responseService, status: ServiceResponseStatus.CANCELLED } } }] : [])] : []),
               ...(filters.serviceStatuses.some(status => status !== 'CANCELLED') ? [{
                 status: { not: 'CANCELLED' as const },
                 serviceResponses: { some: { service: filters.responseService, status: { in: filters.serviceStatuses.filter(status => status !== 'CANCELLED') } } },
@@ -196,13 +198,17 @@ export class IncidentRepository {
     }), prisma.incident.count({ where: { AND: [incidentScope, { status: 'CANCELLED' }], serviceResponses: { some: { service } } } })]);
     // Already resolved department history is retained. The parent cancellation
     // still belongs exclusively in Cancelled, never both Resolved and Cancelled.
-    return [...rows, { status: ServiceResponseStatus.CANCELLED, _count: { _all: cancelled } }];
+    return [...rows.filter(row => row.status !== 'CANCELLED'), { status: ServiceResponseStatus.CANCELLED,
+      _count: { _all: cancelled + (rows.find(row => row.status === 'CANCELLED')?._count._all ?? 0) } }];
   }
 
   async countByResponseService(filters?: IncidentFilters) {
     return prisma.incidentServiceResponse.groupBy({
       by: ["service"],
       where: {
+        ...(nearbyReviewEnabled() && { OR: Object.values(ResponseService).map(service => ({ service,
+          incident: { nearbyReviews: { none: { service, status: { in: ['PENDING', 'REJECTED'] as ('PENDING' | 'REJECTED')[] } } } },
+        })) }),
         incident: {
           is: {
             AND: [filters?.scope ?? {}, ...historyScope(filters)],

@@ -45,6 +45,12 @@ enum IncidentReviewStatus {
   DISMISSED
 }
 
+enum NearbyReviewStatus {
+  PENDING
+  ACKNOWLEDGED
+  REJECTED
+}
+
 enum TokenType {
   REFRESH
   EMAIL_VERIFY
@@ -180,6 +186,7 @@ model User {
   mergedIncidents    Incident[]                @relation("IncidentMergedBy")
   flaggedIncidentReviews IncidentReviewFlag[] @relation("IncidentReviewFlaggedBy")
   reviewedIncidentFlags IncidentReviewFlag[] @relation("IncidentReviewReviewedBy")
+  nearbyReviewDecisions IncidentNearbyReview[]
   incidentAcknowledgements IncidentAcknowledgement[]
 }
 
@@ -374,6 +381,8 @@ model Incident {
   merger         User?      @relation("IncidentMergedBy", fields: [mergedBy], references: [id], onDelete: SetNull)
   reviewFlags    IncidentReviewFlag[]
   acknowledgements IncidentAcknowledgement[]
+  nearbyReviews IncidentNearbyReview[] @relation("NearbyReviewReport")
+  laterNearbyReviews IncidentNearbyReview[] @relation("NearbyReviewOriginal")
 
   @@index([reportedBy])
   @@index([typeId])
@@ -390,6 +399,29 @@ model Incident {
   @@index([requestedServices], type: Gin)
   @@index([mergedIntoId])
   @@map("incidents")
+}
+
+// Only subsequent, same-service citizen reports enter this intake gate. Existing
+// reports are not backfilled. A decision belongs to one assigned department.
+model IncidentNearbyReview {
+  reviewId String @id @default(uuid()) @map("review_id") @db.Uuid
+  incidentId String @map("incident_id") @db.Uuid
+  parentIncidentId String @map("parent_incident_id") @db.Uuid
+  service ResponseService
+  status NearbyReviewStatus @default(PENDING)
+  version Int @default(1)
+  reason String?
+  reviewedBy String? @map("reviewed_by")
+  reviewedAt DateTime? @map("reviewed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  incident Incident @relation("NearbyReviewReport", fields: [incidentId], references: [incidentId], onDelete: Cascade)
+  parent Incident @relation("NearbyReviewOriginal", fields: [parentIncidentId], references: [incidentId], onDelete: Restrict)
+  reviewer User? @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+  @@unique([incidentId, service])
+  @@index([service, status, createdAt])
+  @@index([parentIncidentId, status])
+  @@map("incident_nearby_reviews")
 }
 
 // A review request never changes incident/department response state.

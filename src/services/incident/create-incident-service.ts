@@ -22,6 +22,8 @@ import { resolveBarangayFromCoordinates } from "@/lib/barangay-boundaries";
 import { departmentService } from "@/domain/department-access.policy";
 import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/permissions.policy";
 import { recordCitizenReportSequence } from '@/lib/citizen-report-sequence';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { selectNearbyParents } from '@/domain/nearby-review.policy';
 
 const incidentRepository = new IncidentRepository();
 
@@ -268,7 +270,7 @@ export const CreateIncidentService = async (
     }
 
     // 5. Create the incident and its verified proof atomically.
-    const { incident, accountDeactivated } = await prisma.$transaction(async (tx) => {
+    const { incident, accountDeactivated, pendingNearbyServices } = await prisma.$transaction(async (tx) => {
       let approvedDuplicateOverride = false;
       // Preserve reporter serialization for evidence checks; there is no daily quota.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${reportedBy} FOR UPDATE`;
@@ -295,6 +297,7 @@ export const CreateIncidentService = async (
         throw new RepeatedSubmissionError('This submission was already received. Check your reports before starting a new report.');
       }
       let nearbyReportDetected = false;
+      let intakeParents: Array<{ service: ResponseService; parentIncidentId: string }> = [];
       if (verifiedProof?.phash) {
         const reporterProofKey = `${reportedBy}:${verifiedProof.phash}`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${reporterProofKey}, 0))`;
@@ -338,6 +341,28 @@ export const CreateIncidentService = async (
         );
         nearbyReportDetected = Boolean(duplicate);
         approvedDuplicateOverride = Boolean(duplicate && data.duplicateOverrideReason);
+        if (requiresProof && nearbyReviewEnabled() && targetResponseServices.length) {
+          const query = nearbyIncidentCandidateQuery(effectiveLatitude!, effectiveLongitude!);
+          const intakeCandidates = await tx.incident.findMany({ ...query,
+            where: { AND: [query.where, { verificationStatus: 'VERIFIED', mergedIntoId: null,
+              reviewFlags: { none: { status: 'CONFIRMED' } } }] },
+            select: { ...query.select, reportedAt: true,
+              nearbyReviews: { select: { service: true, status: true } },
+              serviceResponses: { select: { service: true, status: true } } },
+          });
+          // Match the Decimal(9,6) coordinates that this report will persist.
+          intakeParents = selectNearbyParents(intakeCandidates, Number(effectiveLatitude!.toFixed(6)), Number(effectiveLongitude!.toFixed(6)), targetResponseServices);
+          const retainedParents = new Set<string>();
+          for (const id of [...new Set(intakeParents.map(parent => parent.parentIncidentId))].sort()) {
+            const rows = await tx.$queryRaw<Array<{ incidentId: string }>>`
+              SELECT incident_id AS "incidentId" FROM incidents WHERE incident_id = ${id}::uuid FOR KEY SHARE
+            `;
+            if (rows.length) retainedParents.add(id);
+          }
+          // A parent deleted before the key lock must not discard a genuine
+          // new submission. Admit that lane normally rather than fail its FK.
+          intakeParents = intakeParents.filter(parent => retainedParents.has(parent.parentIncidentId));
+        }
       }
       if (!resolvedLocationId) {
         const location = await tx.location.create({ data: {
@@ -347,8 +372,13 @@ export const CreateIncidentService = async (
         } });
         resolvedLocationId = location.locationId;
       }
+      // PostgreSQL now() is transaction-start time, possibly before a nearby
+      // lock wait. Receipt time belongs after that wait, not before Report A.
+      const received = nearbyReviewEnabled() && requiresProof
+        ? (await tx.$queryRaw<Array<{ receivedAt: Date }>>`SELECT clock_timestamp() AS "receivedAt"`)[0].receivedAt : undefined;
       const created = await tx.incident.create({
         data: {
+          ...(received && { reportedAt: received }),
           title: data.title,
           description: fullDescription || undefined,
           typeId: resolvedTypeId!,
@@ -358,7 +388,7 @@ export const CreateIncidentService = async (
           longitude: effectiveLongitude,
           severityLevel: data.severityLevel || SeverityLevel.MEDIUM,
           requestedServices: explicitlyRequestedServices,
-          status: "RESPONDING",
+          status: intakeParents.length > 0 && intakeParents.length === targetResponseServices.length ? 'OPEN' : 'RESPONDING',
           verificationStatus: "VERIFIED",
           verifiedAt: new Date(),
           reportedBy,
@@ -384,9 +414,13 @@ export const CreateIncidentService = async (
         },
         include: { type: true, location: true, barangay: true, attachments: true, serviceResponses: true },
       });
+      if (intakeParents.length) await tx.incidentNearbyReview.createMany({ data: intakeParents.map(parent => ({
+        ...parent, incidentId: created.incidentId,
+      })) });
       await tx.auditLog.create({
         data: { actorId: reportedBy, action: approvedDuplicateOverride ? "INCIDENT_DUPLICATE_OVERRIDE" : "INCIDENT_CREATED", entityType: "Incident", entityId: created.incidentId,
           metadata: { ...(submissionKey && { submissionKey }), nearbyReportDetected,
+            ...(intakeParents.length && { pendingNearbyServices: intakeParents.map(parent => parent.service) }),
             ...(approvedDuplicateOverride && { reason: data.duplicateOverrideReason }) } },
       });
       if (targetResponseServices.length > 0) {
@@ -403,7 +437,7 @@ export const CreateIncidentService = async (
       const accountDeactivated = requiresProof
         ? await recordCitizenReportSequence(tx, reportedBy, { incidentId: created.incidentId, services: targetResponseServices })
         : false;
-      return { incident: created, accountDeactivated };
+      return { incident: created, accountDeactivated, pendingNearbyServices: intakeParents.map(parent => parent.service) };
     });
     proofPersisted = Boolean(verifiedProof);
 
@@ -412,8 +446,10 @@ export const CreateIncidentService = async (
     return {
       code: 201,
       status: "success",
-      message: "Incident reported successfully",
-      data: { incident: protectIncidentEvidence(incident), ...(accountDeactivated && { accountDeactivated: true }) },
+      message: pendingNearbyServices.length ? 'Report received; nearby department review pending' : "Incident reported successfully",
+      data: { incident: { ...protectIncidentEvidence(incident), ...(pendingNearbyServices.length && {
+        nearbyIntake: pendingNearbyServices.map(service => ({ service, status: 'PENDING' as const })),
+      }) }, ...(accountDeactivated && { accountDeactivated: true }) },
     };
   } catch (error) {
     if (error instanceof ReporterAccessWithdrawnError) {

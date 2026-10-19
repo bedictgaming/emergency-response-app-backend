@@ -4,6 +4,8 @@ import { publishEmergencyEvent } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { isWorkflowConflict } from "@/domain/workflow-error.policy";
 import { protectIncidentEvidence } from "@/lib/evidence";
+import { nearbyActorService, requireNearbyAdmission } from '@/lib/nearby-review';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 const incidentRepository = new IncidentRepository();
 
@@ -79,6 +81,9 @@ export const UpdateIncidentService = async (
     }
 
     const incident = await prisma.$transaction(async (tx) => {
+      const service = await nearbyActorService(tx, actorId);
+      if (nearbyReviewEnabled()) await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
+      await requireNearbyAdmission(tx, id, service);
       const updated = await tx.incident.update({
         where: { incidentId: id, status: existing.status, verificationStatus: existing.verificationStatus, updatedAt: existing.updatedAt },
         data,

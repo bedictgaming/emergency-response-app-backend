@@ -40,6 +40,7 @@ try {
   await snapshot('empty-before-migrations');
   const migrations = (await readdir(resolve('prisma/migrations'), { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name).sort();
   for (const migration of migrations) {
+    if (migration === '20261019130000_nearby_department_intake') await snapshot('before-nearby-review-migration');
     if (migration === '20261005093000_alert_attention') await snapshot('before-alert-migration');
     if (migration === '20261009090000_google_account_linking') await snapshot('before-link-intent-migration');
     if (migration === '20261010090000_auth_identities') {
@@ -90,7 +91,7 @@ try {
     NODE_ENV: 'test', DATABASE_URL: supplied, DIRECT_URL: supplied, DISPOSABLE_DATABASE_URL: supplied,
     CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1', RUN_NATIVE_AUTH_IDENTITY_TESTS: '1', RUN_NATIVE_INCIDENT_AUTHORITY_TESTS: '1', RUN_INCIDENT_REVIEW_HARDENING_TESTS: '1',
     RUN_UNIT_RETIREMENT_DATABASE_TESTS: '1', RUN_NATIVE_NEARBY_DETECTION: '1', RUN_NATIVE_CITIZEN_SEQUENCE: '1',
-    RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false',
+    RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false', NEARBY_REVIEW_ENABLED: 'false', LOCAL_DEV_CONFIG_FILE: '',
     EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false',
     API_GATEWAY_SECRET: '', API_GATEWAY_AUDIENCE: '', TRUSTED_PROXY_CIDRS: '', RAILWAY_ENVIRONMENT_NAME: '',
     EVIDENCE_NAMESPACE: 'emergency-incidents-staging', JWT_SECRET: 'synthetic-alert-native-secret-only',
@@ -104,6 +105,13 @@ try {
     child.on('error', () => reject(new Error('TEST_RUNNER_UNAVAILABLE'))); child.on('close', accept);
   });
   if (status !== 0) throw new Error('NATIVE_ALERT_TESTS_FAILED');
+  const nearbyStatus = await new Promise((accept, reject) => {
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/nearby-review.database.test.ts', '--maxWorkers=1'], {
+      env: { ...env, NEARBY_REVIEW_ENABLED: 'true', RUN_NATIVE_NEARBY_REVIEW: '1' }, stdio: 'inherit', windowsHide: true,
+    });
+    child.on('error', () => reject(new Error('NEARBY_REVIEW_RUNNER_UNAVAILABLE'))); child.on('close', accept);
+  });
+  if (nearbyStatus !== 0) throw new Error('NATIVE_NEARBY_REVIEW_FAILED');
   const leftovers = await client.query('SELECT (SELECT count(*) FROM "User") AS users, (SELECT count(*) FROM incidents) AS incidents, (SELECT count(*) FROM notification_outbox) AS jobs');
   if (Object.values(leftovers.rows[0]).some(value => Number(value) !== 0)) throw new Error('SYNTHETIC_FIXTURE_CLEANUP_FAILED');
   console.log(JSON.stringify({ passed: true, nativePostgreSQL: true, migrationSql: migrations.length, syntheticOnly: true, providerDelivery: false }));

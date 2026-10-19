@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { publishEmergencyEvent } from "@/lib/events";
 import { enqueueNotification } from "@/lib/jobs";
 import { WorkflowConflict, isWorkflowConflict } from '@/domain/workflow-error.policy';
+import { nearbyActorService, requireNearbyAdmission } from '@/lib/nearby-review';
 
 const taskRepository = new TaskRepository();
 
@@ -34,9 +35,11 @@ export const CreateTaskService = async (
     }
 
     const task = await prisma.$transaction(async (tx) => {
+      const service = await nearbyActorService(tx, actorId);
       // Fence task creation against cancellation/deletion under the same parent
       // lock. A middleware/preflight read cannot protect this interval.
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
+      await requireNearbyAdmission(tx, incidentId, service);
       const current = await tx.incident.findUnique({ where: { incidentId } });
       if (!current || ['CLOSED', 'CANCELLED'].includes(current.status) || current.verificationStatus !== 'VERIFIED')
         throw new WorkflowConflict('This report no longer accepts response tasks.');

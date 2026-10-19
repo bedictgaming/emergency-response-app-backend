@@ -22,6 +22,7 @@ import type { JwtPayload } from '@/lib/jwt';
 import { acknowledgeIncidentAttention, listIncidentAttention } from '@/services/incident/incident-attention-service';
 import { nearbyDetectionSchema } from '@/validation/incident/nearby-detection.schema';
 import { NearbyDetectionService } from '@/services/incident/nearby-detection-service';
+import { DecideNearbyReview, ListNearbyReviews } from '@/services/incident/nearby-review-service';
 
 // Initialize
 const router = Router();
@@ -40,6 +41,20 @@ const nearbyCheckLimiter = rateLimit({
 
 // Public Routes (still authenticated — anyone logged in can view incidents)
 router.get("/v1/", authMiddleware.execute, validateSchema(listIncidentsSchema), incidentController.getAll);
+router.get('/v1/nearby-reviews', authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), async (req, res) => {
+  const query = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1), incidentId: z.uuid().optional(),
+    status: z.enum(['PENDING', 'ACKNOWLEDGED', 'REJECTED']).optional() }).strict().safeParse(req.query);
+  if (!query.success) return res.status(400).json({ message: 'Invalid nearby review query' });
+  try { const result = await ListNearbyReviews(req.user as JwtPayload, query.data); return res.status(result.code).json(result); }
+  catch { return res.status(503).json({ message: 'Nearby review queue unavailable. Retry; reports remain unchanged.' }); }
+});
+router.post('/v1/nearby-reviews/:reviewId/decision', authMiddleware.execute, permittedRole([Role.ADMIN]), async (req, res) => {
+  const body = z.object({ status: z.enum(['ACKNOWLEDGED', 'REJECTED']), version: z.number().int().positive().max(2147483646),
+    reason: z.string().trim().max(500).optional() }).strict().safeParse(req.body);
+  if (!body.success || !z.uuid().safeParse(req.params.reviewId).success) return res.status(400).json({ message: 'Invalid nearby review decision' });
+  const result = await DecideNearbyReview(String(req.params.reviewId), body.data, req.user as JwtPayload);
+  return res.status(result.code).json(result);
+});
 router.get("/v1/review-flags", authMiddleware.execute, requireMainAdmin, validateSchema(listReviewFlagsSchema), incidentController.listReviewFlags);
 const attentionQuery = z.object({ responseService: z.enum(ResponseService).optional() }).strict();
 router.get('/v1/attention', authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), async (req, res) => {

@@ -4,6 +4,7 @@ import type { JwtPayload } from '@/lib/jwt';
 import { departmentIncidentScope, departmentService } from '@/domain/department-access.policy';
 import { isMainAdministrator } from '@/domain/permissions.policy';
 import { publishEmergencyEvent } from '@/lib/events';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 export function attentionScope(actor: JwtPayload, requested?: ResponseService) {
   if (!['ADMIN', 'DISPATCHER'].includes(actor.role)) return null;
@@ -48,12 +49,15 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
     // Main Admin's global handoff is shared across its filtered service views.
     const acknowledgementScope = mainMonitoring ? 'MAIN' : scope;
     const acknowledgementVersion = mainMonitoring ? Prisma.sql`i.attention_version` : version;
+    const admission = nearbyReviewEnabled() && scope !== 'MAIN' ? Prisma.sql`NOT EXISTS (
+      SELECT 1 FROM incident_nearby_reviews nr WHERE nr.incident_id=i.incident_id AND nr.service=${scope}::"ResponseService" AND nr.status='REJECTED'
+    )` : Prisma.sql`TRUE`;
     const ids = await tx.$queryRaw<Array<{ incidentId: string; version: number }>>(Prisma.sql`
       SELECT i.incident_id AS "incidentId", ${version} AS version FROM incidents i
       JOIN incident_types t ON t.type_id = i.type_id
       LEFT JOIN incident_service_responses s ON s.incident_id = i.incident_id AND s.service = ${scope === 'MAIN' ? 'FIRE' : scope}::"ResponseService"
       WHERE i.verification_status = 'VERIFIED' AND i.status IN ('OPEN','ACTIVE','RESPONDING') AND i.merged_into_id IS NULL
-        AND ${service}
+        AND ${service} AND ${admission}
         AND NOT EXISTS (SELECT 1 FROM incident_acknowledgements a WHERE a.user_id = ${actor.sub}
           AND a.incident_id = i.incident_id AND a.scope = ${acknowledgementScope} AND a.version = ${acknowledgementVersion})
       ORDER BY i.reported_at ASC, i.incident_id ASC LIMIT 51
@@ -65,8 +69,12 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
       reporter: { select: { name: true } },
     } });
     const byId = new Map(rows.map(item => [item.incidentId, item]));
+    const pending = nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({ where: {
+      incidentId: { in: page.map(item => item.incidentId) }, status: 'PENDING', ...(scope !== 'MAIN' && { service: scope }),
+    }, select: { incidentId: true } }) : [];
     return { scope, observedAt, acknowledgementMode: mainMonitoring ? 'DEPARTMENT_HANDOFF' as const : 'PERSONAL' as const,
-      hasMore: ids.length > 50, items: page.map(item => ({ ...byId.get(item.incidentId)!, version: item.version, scope })) };
+      hasMore: ids.length > 50, items: page.map(item => ({ ...byId.get(item.incidentId)!, version: item.version, scope,
+        ...(pending.some(row => row.incidentId === item.incidentId) && { pendingNearbyReview: true }) })) };
   }, { isolationLevel: 'RepeatableRead' });
 }
 
@@ -84,6 +92,9 @@ export async function acknowledgeIncidentAttention(actor: JwtPayload, incidentId
     const incident = await tx.incident.findFirst({ where: { incidentId, ...(scope !== 'MAIN' && departmentIncidentScope({ ...fresh, department: scope === 'HAZARD' ? 'DRRMO' : scope as Department, isMainAdmin: false })) }, include: { serviceResponses: true } });
     if (!incident) return 404;
     if (attentionVersion(incident, scope) !== version) return 409;
+    if (nearbyReviewEnabled() && await tx.incidentNearbyReview.findFirst({ where: {
+      incidentId, service: scope as ResponseService, status: { in: ['PENDING', 'REJECTED'] },
+    }, select: { reviewId: true } })) return 409;
     const existing = await tx.incidentAcknowledgement.findUnique({ where: { userId_incidentId_scope: { userId: actor.sub, incidentId, scope } } });
     if (existing?.version === version) return 200;
     await tx.incidentAcknowledgement.upsert({ where: { userId_incidentId_scope: { userId: actor.sub, incidentId, scope } },

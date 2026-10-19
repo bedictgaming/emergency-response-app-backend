@@ -5,6 +5,7 @@ import { publishEmergencyEvent } from "@/lib/events";
 import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import { responseServicesForIncident, sameResponseServices } from "@/domain/response-services.policy";
 import { protectIncidentEvidence } from "@/lib/evidence";
+import { requireNearbyAdmission } from '@/lib/nearby-review';
 
 export async function MergeIncidentService(sourceIncidentId: string, targetIncidentId: string, reason: string, actor: JwtPayload) {
   if (!["ADMIN", "DISPATCHER"].includes(actor.role)) return { code: 403, status: "error", message: "Operational role required" };
@@ -13,6 +14,7 @@ export async function MergeIncidentService(sourceIncidentId: string, targetIncid
     const source = await prisma.$transaction(async (tx) => {
       for (const id of [sourceIncidentId, targetIncidentId].sort()) {
         await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
+        await requireNearbyAdmission(tx, id);
       }
       const incidents = await tx.incident.findMany({
         where: { incidentId: { in: [sourceIncidentId, targetIncidentId] }, ...departmentIncidentScope(actor) },

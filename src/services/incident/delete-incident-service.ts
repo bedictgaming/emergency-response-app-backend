@@ -7,6 +7,7 @@ import { isMainAdministrator } from "@/domain/permissions.policy";
 import { publishEmergencyEvent } from "@/lib/events";
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/domain/false-report-disposition.policy';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 const incidentRepository = new IncidentRepository();
 export const DeleteIncidentService = async (id: string, actor: JwtPayload, input: { reason: string; confirmation: string; falseReport?: FalseReportVersion }) => {
@@ -27,6 +28,9 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
       const fresh = await lockOperationalActor(tx, actor);
       if (!isMainAdministrator(fresh)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
+      if (nearbyReviewEnabled() && await tx.incidentNearbyReview.findFirst({ where: {
+        OR: [{ incidentId: id }, { parentIncidentId: id }],
+      }, select: { reviewId: true } })) throw new WorkflowConflict('This report and its evidence belong to a retained nearby review. Permanent deletion is unavailable.');
       const current = await tx.incident.findUnique({
         where: { incidentId: id },
         include: { attachments: { select: { publicId: true } }, incidentUnits: { select: { unitId: true, status: true } }, tasks: { select: { status: true } }, reviewFlags: true },

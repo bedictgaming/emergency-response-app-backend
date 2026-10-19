@@ -6,6 +6,8 @@ import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/per
 import { publishEmergencyEvent } from "@/lib/events";
 import { WorkflowConflict, isWorkflowConflict } from "@/domain/workflow-error.policy";
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
+import { requireNearbyAdmission } from '@/lib/nearby-review';
+import { departmentService } from '@/domain/department-access.policy';
 
 export function reviewDepartmentFor(actor: JwtPayload): Department | "ALL" | undefined {
   if (actor.role !== "ADMIN" || !hasValidOperationalAssignment(actor)) return undefined;
@@ -21,6 +23,7 @@ export async function FlagIncidentService(id: string, reason: string, actor: Jwt
       const fresh = await lockOperationalActor(tx, actor);
       if (!reviewDepartmentFor(fresh)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
+      await requireNearbyAdmission(tx, id, departmentService(fresh.department));
       const incident = await tx.incident.findFirst({ where: { incidentId: id, ...departmentIncidentScope(fresh) }, select: { incidentId: true, status: true } });
       if (!incident) return null;
       if (incident.status === 'CANCELLED') return false;

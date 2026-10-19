@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { departmentService } from '@/domain/department-access.policy';
 import { isMainAdministrator } from '@/domain/permissions.policy';
 import { responseServicesForIncident, unitTypeSupportsService } from '@/domain/response-services.policy';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 export type NotificationJob = { eventType: string; createdAt: Date; payload: unknown; userIds: string[]; audienceIds?: string[] };
 export const notificationAudience = (job: NotificationJob) => job.audienceIds ?? job.userIds;
@@ -41,6 +42,9 @@ export async function notificationRelevant(job: NotificationJob, userId: string)
     return acknowledged?.version !== requestedVersion;
   }
   const service = departmentService(user.department);
+  if (service && nearbyReviewEnabled() && await prisma.incidentNearbyReview.findFirst({ where: {
+    incidentId: incident.incidentId, service, status: 'REJECTED',
+  }, select: { reviewId: true } })) return false;
   if (['ADMIN','DISPATCHER'].includes(user.role)) {
     if (!service || !services.includes(service) || (data.responseService && data.responseService !== service)
       || (incident.serviceResponses.find(item => item.service === service)?.attentionVersion ?? incident.attentionVersion) !== serviceVersion

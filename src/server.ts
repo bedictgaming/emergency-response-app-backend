@@ -1,3 +1,4 @@
+import '@/bootstrap/local-development';
 import app, { gatewayGuard } from '@/app';
 import { createServer } from 'node:http';
 import { attachSocketEvents } from '@/lib/socket-events';

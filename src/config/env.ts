@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import { readMailConfiguration } from '@/services/mail/mail-config';
 dotenv.config();
 
-for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED']) {
+for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED', 'NEARBY_REVIEW_ENABLED']) {
   if (process.env[name] !== undefined && !['true', 'false'].includes(process.env[name]!)) {
     throw new Error(`Invalid boolean configuration: ${name}`);
   }

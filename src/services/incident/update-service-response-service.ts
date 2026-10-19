@@ -7,6 +7,9 @@ import { isMainAdministrator } from "@/domain/permissions.policy";
 import { enqueueNotification } from '@/lib/jobs';
 import { incidentNotificationAudience } from '@/lib/incident-notification-audience';
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
+import { requireNearbyAdmission } from '@/lib/nearby-review';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { isWorkflowConflict } from '@/domain/workflow-error.policy';
 
 export async function UpdateServiceResponseService(incidentId: string, service: ResponseService, status: ServiceResponseStatus, actor: JwtPayload) {
   if (status === 'CANCELLED') return { code: 403, status: 'error', message: 'Only the Main Admin confirmed-false workflow can cancel responses.' };
@@ -19,6 +22,7 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
       if ((isMainAdministrator(fresh) && status === 'RESOLVED')
           || (!isMainAdministrator(fresh) && departmentService(fresh.department) !== service)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
+      await requireNearbyAdmission(tx, incidentId, service);
       const incident = await tx.incident.findUnique({ where: { incidentId }, include: { serviceResponses: true } });
       if (!incident) return null;
       if (incident.status === "CLOSED" || incident.status === 'CANCELLED' || incident.mergedIntoId) return "closed";
@@ -30,8 +34,11 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
         status, resolvedAt: status === "RESOLVED" ? new Date() : null, resolvedBy: status === "RESOLVED" ? actor.sub : null,
         ...(reopening && { attentionVersion: { increment: 1 } }),
       } });
-      const remaining = incident.serviceResponses.filter(item => item.service !== service && item.status !== "RESOLVED").length + (status === "RESOLVED" ? 0 : 1);
-      const nextStatus = remaining === 0 ? "RESOLVED" : "RESPONDING";
+      const reviews = nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({ where: { incidentId }, select: { service: true, status: true } }) : [];
+      const remaining = incident.serviceResponses.filter(item => item.service !== service && item.status !== "RESOLVED"
+        && (!nearbyReviewEnabled() || item.status !== 'CANCELLED')
+        && !reviews.some(review => review.service === item.service && review.status !== 'ACKNOWLEDGED')).length + (status === "RESOLVED" ? 0 : 1);
+      const nextStatus = remaining > 0 ? 'RESPONDING' : reviews.some(review => review.status === 'PENDING') ? 'OPEN' : 'RESOLVED';
       if (incident.status !== nextStatus || reopening) await tx.incident.update({ where: { incidentId }, data: { status: nextStatus, ...(reopening && { attentionVersion: { increment: 1 } }) } });
       await tx.auditLog.create({ data: { actorId: actor.sub, action: "SERVICE_RESPONSE_UPDATED", entityType: "Incident", entityId: incidentId, metadata: { service, status } } });
       if (reopening) await enqueueNotification(tx, 'INCIDENT_REOPENED', {
@@ -47,6 +54,7 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
     return { code: 200, status: "success", message: "Department response updated", data: { serviceResponse: result } };
   } catch (error) {
     if (error instanceof OperationalAuthorizationError) return { code: error.code, status: 'error', message: error.message };
+    if (isWorkflowConflict(error)) return { code: 409, status: 'error', message: 'Review the current department intake and response before retrying.' };
     console.error("UpdateServiceResponseService Error", error);
     return { code: 409, status: "error", message: "The response changed concurrently. Refresh and retry." };
   }

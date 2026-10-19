@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "nearby:prepare-local": "tsx scripts/nearby-review-local.ts prepare",
+    "dev:nearby": "tsx scripts/nearby-review-local.ts serve",
     "build": "tsc && node scripts/copy-prisma-client.mjs && tsc-alias --resolve-full-paths",
     "start": "node ./dist/server.js",
     "test": "vitest run",

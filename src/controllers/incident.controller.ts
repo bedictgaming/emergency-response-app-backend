@@ -18,6 +18,8 @@ import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calenda
 import { CorrectIncidentFlagService, FlagIncidentService, ListIncidentReviewFlagsService, ReviewIncidentFlagService, reviewDepartmentFor } from "@/services/incident/review-incident-service";
 import { reviewNoticeDepartmentFor } from '@/domain/incident-review-notices.policy';
 import { CancelFalseIncidentService } from '@/services/incident/cancel-false-incident-service';
+import { regularNearbyReviewScope } from '@/lib/nearby-review';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -61,6 +63,9 @@ export class IncidentController {
       && Object.values(Department).includes(department as Department)) {
       operationalScope = departmentIncidentScope({ ...authReq.user!, isMainAdmin: false, department: department as Department });
     }
+    if (operationalScope && nearbyReviewEnabled()) operationalScope = { AND: [operationalScope,
+      regularNearbyReviewScope(requestedResponseService ?? (!isMainAdministrator(authReq.user!) ? actorService
+        : typeof department === 'string' ? departmentService(department as Department) : undefined))] };
     const filters = {
       // Caller cannot opt a citizen into operational nearby-report lookups.
       ...(operationalScope && req.query.includeTotal !== 'false' && { nearbyWarningScope: operationalScope }),

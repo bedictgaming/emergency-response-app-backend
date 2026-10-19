@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { IncidentStatus, Prisma } from "@/generated/prisma";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
 import { verifiedAnalyticsEligibility } from '@/domain/verified-analytics.policy';
+import { regularNearbyReviewScope } from '@/lib/nearby-review';
+import { nearbyReviewEnabled } from '@/config/nearby-review';
 
 export interface IncidentsByBarangayFilters {
   from?: Date;
@@ -36,7 +38,7 @@ export class AnalyticsRepository {
         by: ["barangayId", "status"],
         where: {
           ...verifiedAnalyticsEligibility,
-          AND: [filters?.scope ?? {}],
+          AND: [filters?.scope ?? {}, ...(nearbyReviewEnabled() ? [regularNearbyReviewScope()] : [])],
           ...((filters?.from || filters?.to) && {
             reportedAt: { ...(filters?.from && { gte: filters.from }), ...(filters?.to && { lte: filters.to }) },
           }),
@@ -101,7 +103,7 @@ export class AnalyticsRepository {
         by: ["typeId"],
         where: {
           ...verifiedAnalyticsEligibility,
-          AND: [filters?.scope ?? {}],
+          AND: [filters?.scope ?? {}, ...(nearbyReviewEnabled() ? [regularNearbyReviewScope()] : [])],
           ...((filters?.from || filters?.to) && {
             reportedAt: { ...(filters?.from && { gte: filters.from }), ...(filters?.to && { lte: filters.to }) },
           }),
@@ -156,7 +158,7 @@ export class AnalyticsRepository {
 
     const commonWhere: Prisma.IncidentWhereInput = {
       ...verifiedAnalyticsEligibility,
-      AND: [filters?.scope ?? {}],
+      AND: [filters?.scope ?? {}, ...(nearbyReviewEnabled() ? [regularNearbyReviewScope()] : [])],
       ...(filters?.barangayId && { barangayId: filters.barangayId }),
     };
     const [monthly, historical] = await Promise.all([
