@@ -2,7 +2,19 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ incident: vi.fn(), task: vi.fn(), dispatch: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { incident: { findFirst: mocks.incident }, task: { findFirst: mocks.task }, incidentUnit: { findFirst: mocks.dispatch } } }));
 import { canReceiveEvent } from '@/lib/event-access';
+import type { JwtPayload } from '@/lib/jwt';
 beforeEach(() => vi.resetAllMocks());
+it('permits account-list invalidation only to a genuine Main administrator', async () => {
+  const event = { type: 'user.updated' as const, entityId: 'private-account', occurredAt: 'private-time' };
+  for (const actor of [
+    { sub: 'private-account', role: 'USER' },
+    { sub: 'staff', role: 'ADMIN', department: 'FIRE', isMainAdmin: false },
+    { sub: 'staff', role: 'DISPATCHER', department: 'MAIN', isMainAdmin: true },
+    { sub: 'staff', role: 'ADMIN', department: 'MAIN', isMainAdmin: false },
+  ]) expect(await canReceiveEvent({ ...actor, type: 'access' } as JwtPayload, event)).toBe(false);
+  expect(await canReceiveEvent({ sub: 'main', role: 'ADMIN', department: 'MAIN', isMainAdmin: true, type: 'access' }, event)).toBe(true);
+  expect(mocks.incident).not.toHaveBeenCalled();
+});
 it('does not broadcast unrelated incident identifiers to citizens', async () => {
   const actor = { sub: 'citizen', role: 'USER', type: 'access' as const };
   const event = { type: 'incident.created' as const, entityId: 'incident', occurredAt: '' };

@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 
 export type EmergencyEvent = {
-  type: "incident.created" | "incident.updated" | "incident.verified" | "alert.created" | "dispatch.updated" | "task.updated";
+  type: "incident.created" | "incident.updated" | "incident.verified" | "alert.created" | "dispatch.updated" | "task.updated" | "user.updated";
   entityId: string;
   occurredAt: string;
 };

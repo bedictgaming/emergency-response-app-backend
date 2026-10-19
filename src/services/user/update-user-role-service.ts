@@ -2,6 +2,7 @@ import { Department, Role } from "@/generated/prisma";
 import { isMainAdministrator } from '@/domain/permissions.policy';
 import { ensureMainAdministratorRemains, UserAdministrationError, userAdministrationFailure, withUserAdministration } from '@/lib/user-administration';
 import { resetCitizenReportSequence } from '@/lib/citizen-report-sequence';
+import { publishEmergencyEvent } from '@/lib/events';
 
 export const UpdateUserRoleService = async (id: string, role: Role, actorId?: string, department?: Department | null, isMainAdmin = false) => {
   try {
@@ -13,7 +14,7 @@ export const UpdateUserRoleService = async (id: string, role: Role, actorId?: st
       || (isMainAdmin && (role !== Role.ADMIN || department !== Department.MAIN))) {
       return { code: 400, status: "error", message: "The MAIN assignment is reserved for the main administrator" };
     }
-    return await withUserAdministration(id, actorId, async (tx, existing) => {
+    const result = await withUserAdministration(id, actorId, async (tx, existing) => {
       const assignment = { role, department: role === Role.ADMIN || role === Role.DISPATCHER ? department ?? null : null, isMainAdmin: role === Role.ADMIN && isMainAdmin };
       if (id === actorId && isMainAdministrator(existing) && !isMainAdministrator(assignment)) {
         throw new UserAdministrationError(400, 'You cannot remove your own main administrator access or change your own department');
@@ -32,6 +33,8 @@ export const UpdateUserRoleService = async (id: string, role: Role, actorId?: st
           fromIsMainAdmin: existing.isMainAdmin, isMainAdmin: assignment.isMainAdmin } } });
       return { code: 200, status: 'success', message: `User role successfully updated to ${role}`, data: { user } };
     });
+    publishEmergencyEvent({ type: 'user.updated', entityId: id });
+    return result;
   } catch (error) {
     return userAdministrationFailure(error, 'Failed to update user role');
   }

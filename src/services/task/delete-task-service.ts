@@ -1,4 +1,5 @@
 import { TaskRepository } from "@/repositories/task.repository";
+import { publishEmergencyEvent } from '@/lib/events';
 
 const taskRepository = new TaskRepository();
 
@@ -11,6 +12,9 @@ export const DeleteTaskService = async (id: string) => {
     }
 
     await taskRepository.delete(id);
+    // The deleted task can no longer authorize its own event. Invalidate via
+    // the surviving parent, whose existing scope is checked for every viewer.
+    publishEmergencyEvent({ type: 'incident.updated', entityId: existing.incidentId });
 
     return {
       code: 200,

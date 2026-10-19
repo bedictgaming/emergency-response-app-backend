@@ -1,10 +1,11 @@
 import { UserStatus } from "@/generated/prisma";
 import { ensureMainAdministratorRemains, UserAdministrationError, userAdministrationFailure, withUserAdministration } from '@/lib/user-administration';
 import { resetCitizenReportSequence } from '@/lib/citizen-report-sequence';
+import { publishEmergencyEvent } from '@/lib/events';
 
 export async function UpdateUserStatusService(id: string, status: UserStatus, actorId: string) {
   try {
-    return await withUserAdministration(id, actorId, async (tx, existing) => {
+    const result = await withUserAdministration(id, actorId, async (tx, existing) => {
       if (id === actorId && status === UserStatus.INACTIVE) {
         throw new UserAdministrationError(400, 'You cannot deactivate your own administrator account');
       }
@@ -22,6 +23,10 @@ export async function UpdateUserStatusService(id: string, status: UserStatus, ac
         metadata: { from: existing.status, to: status } } });
       return { code: 200, status: 'success', message: `User marked ${status.toLowerCase()}`, data: { user } };
     });
+    // All streams recheck authority after this committed change, immediately
+    // disconnecting a withdrawn account without waiting for the heartbeat.
+    publishEmergencyEvent({ type: 'user.updated', entityId: id });
+    return result;
   } catch (error) {
     return userAdministrationFailure(error, 'Failed to update user status');
   }

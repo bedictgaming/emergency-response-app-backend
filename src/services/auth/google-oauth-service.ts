@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { signAccessToken, signRefreshToken, TokenExpiry } from "@/lib/jwt";
 import { hasValidOperationalAssignment, withPermissions } from "@/domain/permissions.policy";
 import { googleEmail, googleSubject } from "@/domain/google-identity.policy";
+import { publishEmergencyEvent } from '@/lib/events';
 
 const passwordFirst = () => ({ code: 409, status: "error", errorCode: "oauth_link_password_required",
   message: "Please log in with your password first, then link Google in Settings." });
@@ -29,7 +30,10 @@ export async function GoogleOAuthService(profile: Profile) {
       if (!ownership.authoritative || !ownership.email) return { code: 403, status: "error", errorCode: "oauth_email_verification_required",
         message: "Use email registration or a verified Gmail or Google Workspace account." };
       if (matching) { userId = matching.id; autoLink = true; }
-      else userId = (await repository.createUserWithAccount({ providerAccountId: googleId, name: profile.displayName ?? null, email: ownership.email })).userId;
+      else {
+        userId = (await repository.createUserWithAccount({ providerAccountId: googleId, name: profile.displayName ?? null, email: ownership.email })).userId;
+        publishEmergencyEvent({ type: 'user.updated', entityId: userId });
+      }
     }
 
     // Lock shared with unlink, reset and refresh: a stale pre-unlink lookup must

@@ -14,19 +14,26 @@ const limiter = rateLimit({ windowMs: 60_000, limit: 30, keyGenerator: req => (r
 const streamEvents = (req: Request, res: Response) => {
   const actor = req.user as JwtPayload, release = acquire(actor.sub);
   if (!release) return res.status(429).json({ message: 'Stream capacity reached; use report refresh and retry shortly.' });
-  let ended = false, running = false, pending: EmergencyEvent | undefined;
+  let ended = false, running = false;
+  const pending: EmergencyEvent[] = [];
   let unsubscribe = () => {};
   let heartbeat: ReturnType<typeof setInterval>, expiry: ReturnType<typeof setTimeout>;
   const finish = () => {
     if (ended) return;
-    ended = true; pending = undefined; clearInterval(heartbeat); clearTimeout(expiry); unsubscribe(); release(); res.end();
+    ended = true; pending.length = 0; clearInterval(heartbeat); clearTimeout(expiry); unsubscribe(); release(); res.end();
   };
   const write = (value: string) => {
     if (ended || res.destroyed || res.writableEnded) { finish(); return; }
     if (!res.write(value)) finish();
   };
   const check = async (event?: EmergencyEvent) => {
-    if (running || ended) { if (event) pending = event; return; }
+    if (ended) return;
+    if (running) {
+      // Never replace an authorized department event with an unrelated event.
+      // Overflow reconnects and re-reads state instead of growing memory.
+      if (event) { if (pending.length >= 16) finish(); else pending.push(event); }
+      return;
+    }
     running = true;
     try {
       const account = await prisma.user.findUnique({ where: { id: actor.sub }, select: {
@@ -41,7 +48,7 @@ const streamEvents = (req: Request, res: Response) => {
     } catch { finish(); }
     finally {
       running = false;
-      const next = pending; pending = undefined;
+      const next = pending.shift();
       if (next && !ended) void check(next);
     }
   };

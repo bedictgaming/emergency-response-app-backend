@@ -1,5 +1,6 @@
 import { UserRepository } from "@/repositories/user.repository";
 import { hashPassword, PasswordProcessingBusy } from "@/utils/password";
+import { publishEmergencyEvent } from '@/lib/events';
 
 export async function SignupUserService(name: string, email: string, password: string) {
   email = email.trim().toLowerCase();
@@ -13,6 +14,7 @@ export async function SignupUserService(name: string, email: string, password: s
     const created = await userRepository.create({
       name, email, password: await hashPassword(password), emailVerified: null,
     });
+    publishEmergencyEvent({ type: 'user.updated', entityId: created.id });
     return {
       code: 200, status: "success",
       message: "Account created successfully! You can now log in.",

@@ -5,6 +5,7 @@ import { departmentDispatchScope, departmentIncidentScope, departmentTaskScope }
 import { isMainAdministrator } from '@/domain/permissions.policy';
 
 export async function canReceiveEvent(actor: JwtPayload, event: EmergencyEvent) {
+  if (event.type === 'user.updated') return isMainAdministrator(actor);
   if (event.type === 'alert.created') return true;
   if (['ADMIN', 'DISPATCHER'].includes(actor.role)) {
     if (isMainAdministrator(actor)) return true;

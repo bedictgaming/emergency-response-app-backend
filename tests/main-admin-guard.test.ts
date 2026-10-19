@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ transaction: vi.fn() }));
+const mocks = vi.hoisted(() => ({ transaction: vi.fn(), publish: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: mocks.transaction } }));
+vi.mock('@/lib/events', () => ({ publishEmergencyEvent: mocks.publish }));
 import { Role, Department, UserStatus } from '@/generated/prisma';
 import { UpdateUserRoleService } from '@/services/user/update-user-role-service';
 import { UpdateUserStatusService } from '@/services/user/update-user-status-service';
@@ -18,7 +19,7 @@ function transactionMock() {
 function target(overrides: Partial<ManagedUser> = {}) {
   tx.user.findUnique.mockResolvedValueOnce(main).mockResolvedValueOnce({ ...main, id: 'target', ...overrides });
 }
-function unchanged() { expect(tx.user.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled(); }
+function unchanged() { expect(tx.user.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled(); }
 describe('main administrator continuity', () => {
   beforeEach(() => { vi.clearAllMocks(); tx = transactionMock(); mocks.transaction.mockImplementation(callback => callback(tx)); });
   it.each([
@@ -103,5 +104,22 @@ describe('main administrator continuity', () => {
     mocks.transaction.mockRejectedValue({ code: 'P2034', message: 'private provider detail' });
     const result = await UpdateUserStatusService('target', UserStatus.INACTIVE, 'main');
     expect(result.code).toBe(409); expect(result.message).not.toContain('private provider'); unchanged();
+  });
+  it.each(['status', 'role'])('publishes %s invalidation only after commit, never after rollback', async kind => {
+    target({ role: Role.USER, department: null, isMainAdmin: false });
+    let committed = false;
+    mocks.transaction.mockImplementation(async callback => {
+      const value = await callback(tx);
+      expect(mocks.publish).not.toHaveBeenCalled();
+      committed = true; return value;
+    });
+    const run = () => kind === 'status' ? UpdateUserStatusService('target', UserStatus.ACTIVE, 'main')
+      : UpdateUserRoleService('target', Role.USER, 'main');
+    expect((await run()).code).toBe(200);
+    expect(committed).toBe(true);
+    expect(mocks.publish).toHaveBeenCalledExactlyOnceWith({ type: 'user.updated', entityId: 'target' });
+    mocks.publish.mockClear(); mocks.transaction.mockRejectedValueOnce({ code: 'P2034' });
+    expect((await run()).code).toBe(409);
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 });

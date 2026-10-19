@@ -44,3 +44,38 @@ it('SSE sends only a generic nearby hint, never a peer incident identifier', asy
   expect(current.res.write.mock.calls[1][0]).toBe('event: nearby.changed\ndata: {"type":"nearby.changed"}\n\n');
   current.close();
 });
+
+it('preserves different pending events while a permission lookup is in flight', async () => {
+  let release!: (value: unknown) => void;
+  mocks.user.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const current = stream(), notify = mocks.subscribe.mock.calls[0][0];
+  const events = ['first', 'second', 'third'].map(entityId => ({ type: 'incident.updated', entityId, occurredAt: 'synthetic' }));
+  events.forEach(notify);
+  release({ ...actor, status: 'ACTIVE', tokens: [{ id: 'session' }] });
+  await vi.waitFor(() => expect(current.res.write).toHaveBeenCalledTimes(4));
+  expect(current.res.write.mock.calls.slice(1).map(([frame]) => JSON.parse(frame.split('data: ')[1]))).toEqual(events);
+  current.close();
+});
+
+it('bounds pending events and closes on overflow so the client can re-read on reconnect', async () => {
+  let release!: (value: unknown) => void;
+  mocks.user.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const current = stream(), notify = mocks.subscribe.mock.calls[0][0];
+  for (let index = 0; index < 18; index++) notify({ type: 'incident.updated', entityId: String(index) });
+  expect(current.res.end).toHaveBeenCalledOnce();
+  release({ ...actor, status: 'ACTIVE', tokens: [{ id: 'session' }] });
+  await Promise.resolve(); await Promise.resolve();
+  expect(current.res.write).toHaveBeenCalledTimes(1);
+  current.close();
+});
+
+it('SSE emits a generic users.changed and rechecks deactivation without a heartbeat', async () => {
+  const current = stream(), notify = mocks.subscribe.mock.calls[0][0];
+  notify({ type: 'user.updated', entityId: 'private-citizen', occurredAt: 'private-time' });
+  await vi.waitFor(() => expect(current.res.write).toHaveBeenCalledTimes(2));
+  expect(current.res.write.mock.calls[1][0]).toBe('event: users.changed\ndata: {"type":"users.changed"}\n\n');
+  mocks.user.mockResolvedValue({ ...actor, status: 'INACTIVE', tokens: [] });
+  notify({ type: 'user.updated', entityId: actor.sub });
+  await vi.waitFor(() => expect(current.res.end).toHaveBeenCalledOnce());
+  expect(current.res.write).toHaveBeenCalledTimes(2); current.close();
+});

@@ -91,6 +91,30 @@ it('uses real WebSocket transport and sends only authorized invalidation metadat
   const entityId = randomUUID(); publishEmergencyEvent({ type: 'incident.created', entityId });
   expect(await received).toEqual({ type: 'incident.created', entityId, occurredAt: expect.any(String) });
 });
+it('sends generic account-list hints only to Main, not to departments or citizens', async () => {
+  await start();
+  const main = socket(actor()), fire = socket(actor('ADMIN', 'FIRE')), citizen = socket(actor('USER', null));
+  await Promise.all([connected(main), connected(fire), connected(citizen)]);
+  const otherReceived = vi.fn(); fire.on('emergency.event', otherReceived); citizen.on('emergency.event', otherReceived);
+  const received = new Promise(resolve => main.once('emergency.event', resolve));
+  publishEmergencyEvent({ type: 'user.updated', entityId: randomUUID() });
+  expect(await received).toEqual({ type: 'users.changed' });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(otherReceived).not.toHaveBeenCalled();
+});
+it('retains a pending authorized department event between unrelated events during a slow check', async () => {
+  await start(); const identity = actor('ADMIN', 'FIRE'), current = socket(identity); await connected(current);
+  // Finish the connection's initial check before blocking the next one.
+  await new Promise(resolve => setTimeout(resolve, 30));
+  let release!: (value: unknown) => void;
+  db.account.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  db.incident.mockImplementation(({ where }) => Promise.resolve(where.incidentId === 'second' ? { incidentId: 'second' } : null));
+  const received = vi.fn(); current.on('emergency.event', received);
+  for (const entityId of ['first', 'second', 'third']) publishEmergencyEvent({ type: 'incident.updated', entityId });
+  release(accounts.get(identity.sub));
+  await vi.waitFor(() => expect(db.incident).toHaveBeenCalledTimes(3));
+  await vi.waitFor(() => expect(received).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ type: 'incident.updated', entityId: 'second' })));
+});
 it('keeps department and citizen ownership in the real event access query', async () => {
   await start(); const fireActor = actor('ADMIN', 'FIRE'), citizenActor = actor('USER', null);
   const fire = socket(fireActor), citizen = socket(citizenActor);

@@ -80,20 +80,24 @@ export function attachSocketEvents(server: HttpServer, gatewayGuard: RequestHand
   });
   io.on('connection', socket => {
     const actor = socket.data.actor as JwtPayload;
-    let ended = false, checking = false, pending: EmergencyEvent | undefined;
+    let ended = false, checking = false;
+    const pending: EmergencyEvent[] = [];
     let unsubscribe = () => {};
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     let expiry: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
       if (ended) return;
-      ended = true; pending = undefined;
+      ended = true; pending.length = 0;
       clearInterval(heartbeat); clearTimeout(expiry); unsubscribe();
       (socket.data.release as () => void)();
       socket.disconnect(true);
     };
     const check = async (event?: EmergencyEvent) => {
       if (ended) return;
-      if (checking) { if (event) pending = event; return; }
+      if (checking) {
+        if (event) { if (pending.length >= 16) finish(); else pending.push(event); }
+        return;
+      }
       checking = true;
       try {
         const account = await prisma.user.findUnique({ where: { id: actor.sub }, select: {
@@ -119,7 +123,7 @@ export function attachSocketEvents(server: HttpServer, gatewayGuard: RequestHand
       } catch { finish(); }
       finally {
         checking = false;
-        const next = pending; pending = undefined;
+        const next = pending.shift();
         if (next && !ended) void check(next);
       }
     };
