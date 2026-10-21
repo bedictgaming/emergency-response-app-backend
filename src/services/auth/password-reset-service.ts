@@ -9,6 +9,13 @@ import { mailFailureCategory } from "@/services/mail/mail-errors";
 const digest = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 const invalid = () => ({ code: 400, status: "error", message: "Invalid or expired password-reset token" });
 
+export function passwordResetMail(user: { email: string; name: string | null }, token: string, expiresAt: Date) {
+  const resetUrl = `${ENV.FRONTEND_URL.replace(/\/+$/, "")}/login?resetToken=${encodeURIComponent(token)}`;
+  return { to: user.email, subject: 'Reset your Emergency Response password',
+    accountAction: { purpose: 'RESET_PASSWORD' as const, url: resetUrl, name: user.name ?? 'there', expiresAt: expiresAt.toISOString() },
+    html: `<p>A password reset was requested for your account.</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires in 30 minutes.</p>` };
+}
+
 export async function RequestPasswordResetService(email: string) {
   try {
     const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
@@ -18,13 +25,7 @@ export async function RequestPasswordResetService(email: string) {
       await prisma.token.create({
         data: { userId: user.id, type: TokenType.PASSWORD_RESET, token: digest(token), expiresAt },
       });
-      const resetUrl = `${ENV.FRONTEND_URL.replace(/\/+$/, "")}/login?resetToken=${encodeURIComponent(token)}`;
-      await sendEmail({
-        to: user.email,
-        subject: "Reset your Emergency Response password",
-        accountAction: { purpose: "RESET_PASSWORD", url: resetUrl, name: user.name ?? "there", expiresAt: expiresAt.toISOString() },
-        html: `<p>A password reset was requested for your account.</p><p><a href="${resetUrl}">Reset password</a></p><p>This link expires in 30 minutes.</p>`,
-      });
+      await sendEmail(passwordResetMail({ email: user.email, name: user.name }, token, expiresAt));
     }
   } catch (error) {
     // Provider/database failures must not disclose whether an account exists.

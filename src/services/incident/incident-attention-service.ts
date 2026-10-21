@@ -4,7 +4,7 @@ import type { JwtPayload } from '@/lib/jwt';
 import { departmentIncidentScope, departmentService } from '@/domain/department-access.policy';
 import { isMainAdministrator } from '@/domain/permissions.policy';
 import { publishEmergencyEvent } from '@/lib/events';
-import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { nearbyReviewEnabled, nearbyResponseStartEnabled } from '@/config/nearby-review';
 
 export function attentionScope(actor: JwtPayload, requested?: ResponseService) {
   if (!['ADMIN', 'DISPATCHER'].includes(actor.role)) return null;
@@ -49,7 +49,16 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
     // Main Admin's global handoff is shared across its filtered service views.
     const acknowledgementScope = mainMonitoring ? 'MAIN' : scope;
     const acknowledgementVersion = mainMonitoring ? Prisma.sql`i.attention_version` : version;
-    const admission = nearbyReviewEnabled() && scope !== 'MAIN' ? Prisma.sql`NOT EXISTS (
+    // A held lane is quiet through acknowledgment/start as well: those are
+    // updates to B, never a new citizen arrival. A normal lane still alerts.
+    const admission = nearbyResponseStartEnabled() ? scope === 'MAIN' ? Prisma.sql`(
+      NOT EXISTS (SELECT 1 FROM incident_nearby_reviews nr WHERE nr.incident_id=i.incident_id)
+      OR EXISTS (SELECT 1 FROM incident_service_responses normal_lane WHERE normal_lane.incident_id=i.incident_id
+        AND normal_lane.status='RESPONDING' AND NOT EXISTS (SELECT 1 FROM incident_nearby_reviews nr
+          WHERE nr.incident_id=i.incident_id AND nr.service=normal_lane.service))
+    )` : Prisma.sql`NOT EXISTS (SELECT 1 FROM incident_nearby_reviews nr
+      WHERE nr.incident_id=i.incident_id AND nr.service=${scope}::"ResponseService")`
+    : nearbyReviewEnabled() && scope !== 'MAIN' ? Prisma.sql`NOT EXISTS (
       SELECT 1 FROM incident_nearby_reviews nr WHERE nr.incident_id=i.incident_id AND nr.service=${scope}::"ResponseService" AND nr.status='REJECTED'
     )` : Prisma.sql`TRUE`;
     const ids = await tx.$queryRaw<Array<{ incidentId: string; version: number }>>(Prisma.sql`
@@ -69,7 +78,7 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
       reporter: { select: { name: true } },
     } });
     const byId = new Map(rows.map(item => [item.incidentId, item]));
-    const pending = nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({ where: {
+    const pending = nearbyReviewEnabled() && !nearbyResponseStartEnabled() ? await tx.incidentNearbyReview.findMany({ where: {
       incidentId: { in: page.map(item => item.incidentId) }, status: 'PENDING', ...(scope !== 'MAIN' && { service: scope }),
     }, select: { incidentId: true } }) : [];
     return { scope, observedAt, acknowledgementMode: mainMonitoring ? 'DEPARTMENT_HANDOFF' as const : 'PERSONAL' as const,

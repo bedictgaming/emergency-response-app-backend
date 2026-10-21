@@ -8,10 +8,21 @@ import {
   UpdateUserStatusService,
 } from "@/services/user";
 import { Role, UserStatus } from "@/generated/prisma";
+import { AdminRequestPasswordReset, UserViolationSummary } from '@/services/user/account-safety-service';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
 export class UserController {
+  public violations = async (req: Request, res: Response) => {
+    const result = await UserViolationSummary(req.params.id as string, (req as AuthenticatedRequest).user!);
+    return res.status(result.code).json(result);
+  };
+
+  public requestPasswordReset = async (req: Request, res: Response) => {
+    const result = await AdminRequestPasswordReset(req.params.id as string, (req as AuthenticatedRequest).user!);
+    return res.status(result.code).json(result);
+  };
+
   // GET /users/v1/
   public getAll = async (req: Request, res: Response) => {
     const { role, search } = req.query;

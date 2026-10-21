@@ -12,6 +12,8 @@ import type { JwtPayload } from '@/lib/jwt';
 import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
 import { presentEmergencyEvent } from '@/lib/present-emergency-event';
 import { acquireEmergencyStream } from '@/lib/event-stream-budget';
+import { citizenPresence } from '@/lib/citizen-presence';
+import { citizenPresenceEnabled } from '@/config/citizen-presence';
 
 export const SOCKET_EVENTS_PATH = '/api/events/v1/socket.io';
 
@@ -81,20 +83,23 @@ export function attachSocketEvents(server: HttpServer, gatewayGuard: RequestHand
   io.on('connection', socket => {
     const actor = socket.data.actor as JwtPayload;
     let ended = false, checking = false;
-    const pending: EmergencyEvent[] = [];
+    const pending: Array<EmergencyEvent | 'presence.changed'> = [];
     let unsubscribe = () => {};
+    let unsubscribePresence = () => {}, releasePresence = () => {};
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     let expiry: ReturnType<typeof setTimeout> | undefined;
+    let presenceTimer: ReturnType<typeof setTimeout> | undefined, lastPresence = 0;
     const finish = () => {
       if (ended) return;
       ended = true; pending.length = 0;
-      clearInterval(heartbeat); clearTimeout(expiry); unsubscribe();
+      clearInterval(heartbeat); clearTimeout(expiry); clearTimeout(presenceTimer); unsubscribe(); unsubscribePresence(); releasePresence();
       (socket.data.release as () => void)();
       socket.disconnect(true);
     };
-    const check = async (event?: EmergencyEvent) => {
+    const check = async (event?: EmergencyEvent | 'presence.changed') => {
       if (ended) return;
       if (checking) {
+        if (event === 'presence.changed' && pending.includes(event)) return;
         if (event) { if (pending.length >= 16) finish(); else pending.push(event); }
         return;
       }
@@ -111,7 +116,8 @@ export function attachSocketEvents(server: HttpServer, gatewayGuard: RequestHand
           || account.department !== actor.department || account.isMainAdmin !== actor.isMainAdmin) {
           finish(); return;
         }
-        const outgoing = event ? await presentEmergencyEvent({ ...actor, ...account }, event) : null;
+        const outgoing = event === 'presence.changed' ? citizenPresenceEnabled() && account.role === 'USER' ? { type: 'presence.changed' } : null
+          : event ? await presentEmergencyEvent({ ...actor, ...account }, event) : null;
         if (outgoing) {
           if (ended) return;
           if (!socket.conn.transport.writable) {
@@ -129,6 +135,15 @@ export function attachSocketEvents(server: HttpServer, gatewayGuard: RequestHand
     };
     socket.once('disconnect', finish);
     socket.onAny(() => finish()); // No client commands or room subscriptions.
+    if (citizenPresenceEnabled() && actor.role === 'USER') {
+      releasePresence = citizenPresence.connect(actor);
+      unsubscribePresence = citizenPresence.subscribe(actor, () => {
+        if (ended || presenceTimer) return;
+        presenceTimer = setTimeout(() => {
+          presenceTimer = undefined; lastPresence = Date.now(); void check('presence.changed');
+        }, Math.max(100, lastPresence + 1000 - Date.now()));
+      });
+    }
     unsubscribe = subscribeEmergencyEvents(event => { void check(event); });
     heartbeat = setInterval(() => { void check(); }, 25_000);
     // Same short reauthorization lifetime as SSE, with bounded client reconnect.

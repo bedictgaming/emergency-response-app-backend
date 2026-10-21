@@ -5,6 +5,7 @@ import { updateUserRoleSchema, updateUserStatusSchema } from "@/validation/user"
 import { AuthMiddleware } from "@/middleware/auth-middleware";
 import { requireMainAdmin, requirePermission } from "@/middleware/rbac-middleware";
 import { Permission } from "@/domain/permissions.policy";
+import { z } from 'zod';
 
 // Initialize
 const router = Router();
@@ -16,6 +17,11 @@ router.use(authMiddleware.execute, requirePermission(Permission.UserManage), req
 
 // List all system users (with role and search filters)
 router.get("/v1/", userController.getAll);
+
+const accountSafetySchema = z.object({ params: z.object({ id: z.string().min(1).max(128) }),
+  body: z.object({}).strict().optional(), query: z.object({}).strict() });
+router.get('/v1/:id/violations', validateSchema(accountSafetySchema), userController.violations);
+router.post('/v1/:id/password-reset', validateSchema(accountSafetySchema), userController.requestPasswordReset);
 
 // View user detail profile
 router.get("/v1/:id", userController.getById);

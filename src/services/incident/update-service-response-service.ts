@@ -7,8 +7,8 @@ import { isMainAdministrator } from "@/domain/permissions.policy";
 import { enqueueNotification } from '@/lib/jobs';
 import { incidentNotificationAudience } from '@/lib/incident-notification-audience';
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
-import { requireNearbyAdmission } from '@/lib/nearby-review';
-import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { requireNearbyAdmission, nearbyLaneAdmitted, nearbyLaneWaiting } from '@/lib/nearby-review';
+import { nearbyReviewEnabled, nearbyResponseStartEnabled } from '@/config/nearby-review';
 import { isWorkflowConflict } from '@/domain/workflow-error.policy';
 
 export async function UpdateServiceResponseService(incidentId: string, service: ResponseService, status: ServiceResponseStatus, actor: JwtPayload) {
@@ -34,11 +34,12 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
         status, resolvedAt: status === "RESOLVED" ? new Date() : null, resolvedBy: status === "RESOLVED" ? actor.sub : null,
         ...(reopening && { attentionVersion: { increment: 1 } }),
       } });
-      const reviews = nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({ where: { incidentId }, select: { service: true, status: true } }) : [];
+      const reviews = nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({ where: { incidentId }, select: { service: true, status: true,
+        ...(nearbyResponseStartEnabled() && { responseStart: { select: { reviewId: true } } }) } }) : [];
       const remaining = incident.serviceResponses.filter(item => item.service !== service && item.status !== "RESOLVED"
         && (!nearbyReviewEnabled() || item.status !== 'CANCELLED')
-        && !reviews.some(review => review.service === item.service && review.status !== 'ACKNOWLEDGED')).length + (status === "RESOLVED" ? 0 : 1);
-      const nextStatus = remaining > 0 ? 'RESPONDING' : reviews.some(review => review.status === 'PENDING') ? 'OPEN' : 'RESOLVED';
+        && !reviews.some(review => review.service === item.service && !nearbyLaneAdmitted(review))).length + (status === "RESOLVED" ? 0 : 1);
+      const nextStatus = remaining > 0 ? 'RESPONDING' : reviews.some(nearbyLaneWaiting) ? 'OPEN' : 'RESOLVED';
       if (incident.status !== nextStatus || reopening) await tx.incident.update({ where: { incidentId }, data: { status: nextStatus, ...(reopening && { attentionVersion: { increment: 1 } }) } });
       await tx.auditLog.create({ data: { actorId: actor.sub, action: "SERVICE_RESPONSE_UPDATED", entityType: "Incident", entityId: incidentId, metadata: { service, status } } });
       if (reopening) await enqueueNotification(tx, 'INCIDENT_REOPENED', {

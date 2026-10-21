@@ -22,7 +22,8 @@ import type { JwtPayload } from '@/lib/jwt';
 import { acknowledgeIncidentAttention, listIncidentAttention } from '@/services/incident/incident-attention-service';
 import { nearbyDetectionSchema } from '@/validation/incident/nearby-detection.schema';
 import { NearbyDetectionService } from '@/services/incident/nearby-detection-service';
-import { DecideNearbyReview, ListNearbyReviews } from '@/services/incident/nearby-review-service';
+import { DecideNearbyReview, ListNearbyReviews, StartNearbyResponse } from '@/services/incident/nearby-review-service';
+import { FlagNearbyReview } from '@/services/incident/review-incident-service';
 
 // Initialize
 const router = Router();
@@ -53,6 +54,18 @@ router.post('/v1/nearby-reviews/:reviewId/decision', authMiddleware.execute, per
     reason: z.string().trim().max(500).optional() }).strict().safeParse(req.body);
   if (!body.success || !z.uuid().safeParse(req.params.reviewId).success) return res.status(400).json({ message: 'Invalid nearby review decision' });
   const result = await DecideNearbyReview(String(req.params.reviewId), body.data, req.user as JwtPayload);
+  return res.status(result.code).json(result);
+});
+router.post('/v1/nearby-reviews/:reviewId/flag', authMiddleware.execute, permittedRole([Role.ADMIN]), async (req, res) => {
+  const body = z.object({ version: z.number().int().positive().max(2147483646), reason: z.string().trim().min(10).max(500) }).strict().safeParse(req.body);
+  if (!body.success || !z.uuid().safeParse(req.params.reviewId).success) return res.status(400).json({ message: 'Invalid nearby review flag' });
+  const result = await FlagNearbyReview(String(req.params.reviewId), body.data.version, body.data.reason, req.user as JwtPayload);
+  return res.status(result.code).json(result);
+});
+router.post('/v1/nearby-reviews/:reviewId/start-response', authMiddleware.execute, permittedRole([Role.ADMIN]), async (req, res) => {
+  const body = z.object({ version: z.number().int().positive().max(2147483646) }).strict().safeParse(req.body);
+  if (!body.success || !z.uuid().safeParse(req.params.reviewId).success) return res.status(400).json({ message: 'Invalid nearby response start' });
+  const result = await StartNearbyResponse(String(req.params.reviewId), body.data.version, req.user as JwtPayload);
   return res.status(result.code).json(result);
 });
 router.get("/v1/review-flags", authMiddleware.execute, requireMainAdmin, validateSchema(listReviewFlagsSchema), incidentController.listReviewFlags);

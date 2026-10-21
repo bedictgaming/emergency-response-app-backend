@@ -40,6 +40,27 @@ try {
   await snapshot('empty-before-migrations');
   const migrations = (await readdir(resolve('prisma/migrations'), { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name).sort();
   for (const migration of migrations) {
+    if (migration === '20261020170000_nearby_response_starts') {
+      const user = randomUUID(), type = randomUUID(), location = randomUUID(), parent = randomUUID(), child = randomUUID(), review = randomUUID();
+      await client.query('INSERT INTO "User" (id,"updatedAt") VALUES ($1,now())', [user]);
+      await client.query('INSERT INTO incident_types (type_id,type_name) VALUES ($1,$2)', [type, 'Synthetic legacy response start']);
+      await client.query('INSERT INTO locations (location_id,location_name) VALUES ($1,$2)', [location, 'Synthetic legacy location']);
+      await client.query('INSERT INTO incidents (incident_id,title,type_id,location_id,severity_level,reported_by,updated_at) VALUES ($1,$3,$4,$5,\'MEDIUM\',$6,now()),($2,$3,$4,$5,\'MEDIUM\',$6,now())', [parent,child,'Synthetic legacy report',type,location,user]);
+      await client.query('INSERT INTO incident_nearby_reviews (review_id,incident_id,parent_incident_id,service,status,version,reviewed_by,reviewed_at,updated_at) VALUES ($1,$2,$3,\'FIRE\',\'ACKNOWLEDGED\',2,$4,now(),now())', [review,child,parent,user]);
+      const before = (await client.query('SELECT row_to_json(r)::text AS row FROM incident_nearby_reviews r WHERE review_id=$1', [review])).rows[0].row;
+      await snapshot('before-explicit-response-start-migration');
+      await client.query(await readFile(resolve('prisma/migrations', migration, 'migration.sql'), 'utf8'));
+      const receipt = (await client.query('SELECT legacy_admission,started_by,expected_review_version,(started_at=r.reviewed_at) AS original_time FROM incident_nearby_response_starts s JOIN incident_nearby_reviews r USING(review_id) WHERE review_id=$1', [review])).rows[0];
+      const after = (await client.query('SELECT row_to_json(r)::text AS row FROM incident_nearby_reviews r WHERE review_id=$1', [review])).rows[0].row;
+      if (!receipt?.legacy_admission || receipt.started_by !== user || receipt.expected_review_version !== 2 || !receipt.original_time || before !== after) throw Error('LEGACY_RESPONSE_START_BACKFILL_FAILED');
+      await client.query('DELETE FROM incident_nearby_reviews WHERE review_id=$1', [review]);
+      await client.query('DELETE FROM incidents WHERE incident_id=ANY($1::uuid[])', [[parent, child]]);
+      await client.query('DELETE FROM incident_types WHERE type_id=$1', [type]);
+      await client.query('DELETE FROM locations WHERE location_id=$1', [location]);
+      await client.query('DELETE FROM "User" WHERE id=$1', [user]);
+      continue;
+    }
+    if (migration === '20261020100000_report_request_context_retention') await snapshot('before-request-context-retention-migration');
     if (migration === '20261019130000_nearby_department_intake') await snapshot('before-nearby-review-migration');
     if (migration === '20261005093000_alert_attention') await snapshot('before-alert-migration');
     if (migration === '20261009090000_google_account_linking') await snapshot('before-link-intent-migration');
@@ -91,8 +112,8 @@ try {
     NODE_ENV: 'test', DATABASE_URL: supplied, DIRECT_URL: supplied, DISPOSABLE_DATABASE_URL: supplied,
     CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1', RUN_NATIVE_AUTH_IDENTITY_TESTS: '1', RUN_NATIVE_INCIDENT_AUTHORITY_TESTS: '1', RUN_INCIDENT_REVIEW_HARDENING_TESTS: '1',
     RUN_UNIT_RETIREMENT_DATABASE_TESTS: '1', RUN_NATIVE_NEARBY_DETECTION: '1', RUN_NATIVE_CITIZEN_SEQUENCE: '1',
-    RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false', NEARBY_REVIEW_ENABLED: 'false', LOCAL_DEV_CONFIG_FILE: '',
-    EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false',
+    RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false', NEARBY_REVIEW_ENABLED: 'false', NEARBY_RESPONSE_START_ENABLED: 'false', LOCAL_DEV_CONFIG_FILE: '',
+    EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false', CONFIRMED_FALSE_SANCTIONS_ENABLED: 'false', REPORT_REQUEST_CONTEXT_ENABLED: 'false', LOCAL_REPORT_CONTEXT_WORKER_ENABLED: 'false',
     API_GATEWAY_SECRET: '', API_GATEWAY_AUDIENCE: '', TRUSTED_PROXY_CIDRS: '', RAILWAY_ENVIRONMENT_NAME: '',
     EVIDENCE_NAMESPACE: 'emergency-incidents-staging', JWT_SECRET: 'synthetic-alert-native-secret-only',
     FRONTEND_URL: 'http://localhost:3000', BACKEND_URL: 'http://localhost:8000', COOKIE_DOMAIN: '',
@@ -107,12 +128,33 @@ try {
   if (status !== 0) throw new Error('NATIVE_ALERT_TESTS_FAILED');
   const nearbyStatus = await new Promise((accept, reject) => {
     const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/nearby-review.database.test.ts', '--maxWorkers=1'], {
-      env: { ...env, NEARBY_REVIEW_ENABLED: 'true', RUN_NATIVE_NEARBY_REVIEW: '1' }, stdio: 'inherit', windowsHide: true,
+      env: { ...env, NEARBY_REVIEW_ENABLED: 'true', RUN_NATIVE_NEARBY_REVIEW: '1', REPORT_REQUEST_CONTEXT_ENABLED: 'true' }, stdio: 'inherit', windowsHide: true,
     });
     child.on('error', () => reject(new Error('NEARBY_REVIEW_RUNNER_UNAVAILABLE'))); child.on('close', accept);
   });
   if (nearbyStatus !== 0) throw new Error('NATIVE_NEARBY_REVIEW_FAILED');
-  const leftovers = await client.query('SELECT (SELECT count(*) FROM "User") AS users, (SELECT count(*) FROM incidents) AS incidents, (SELECT count(*) FROM notification_outbox) AS jobs');
+  const startStatus = await new Promise((accept, reject) => {
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/nearby-response-start.database.test.ts', '--maxWorkers=1'], {
+      env: { ...env, NEARBY_REVIEW_ENABLED: 'true', NEARBY_RESPONSE_START_ENABLED: 'true', RUN_NATIVE_NEARBY_RESPONSE_START: '1' }, stdio: 'inherit', windowsHide: true,
+    });
+    child.on('error', () => reject(new Error('NEARBY_RESPONSE_START_RUNNER_UNAVAILABLE'))); child.on('close', accept);
+  });
+  if (startStatus !== 0) throw new Error('NATIVE_NEARBY_RESPONSE_START_FAILED');
+  const sanctionStatus = await new Promise((accept, reject) => {
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/confirmed-false-sanctions.database.test.ts', '--maxWorkers=1'], {
+      env: { ...env, NEARBY_REVIEW_ENABLED: 'true', CONFIRMED_FALSE_SANCTIONS_ENABLED: 'true', RUN_NATIVE_FALSE_SANCTIONS: '1' }, stdio: 'inherit', windowsHide: true,
+    });
+    child.on('error', () => reject(new Error('FALSE_SANCTION_RUNNER_UNAVAILABLE'))); child.on('close', accept);
+  });
+  if (sanctionStatus !== 0) throw new Error('NATIVE_FALSE_SANCTIONS_FAILED');
+  const contextStatus = await new Promise((accept, reject) => {
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/report-context-retention.database.test.ts', '--maxWorkers=1'], {
+      env: { ...env, REPORT_REQUEST_CONTEXT_ENABLED: 'true', RUN_NATIVE_CONTEXT_RETENTION: '1' }, stdio: 'inherit', windowsHide: true,
+    });
+    child.on('error', () => reject(new Error('CONTEXT_RETENTION_RUNNER_UNAVAILABLE'))); child.on('close', accept);
+  });
+  if (contextStatus !== 0) throw new Error('NATIVE_CONTEXT_RETENTION_FAILED');
+  const leftovers = await client.query('SELECT (SELECT count(*) FROM "User") AS users, (SELECT count(*) FROM incidents) AS incidents, (SELECT count(*) FROM notification_outbox) AS jobs, (SELECT count(*) FROM report_request_contexts) AS context');
   if (Object.values(leftovers.rows[0]).some(value => Number(value) !== 0)) throw new Error('SYNTHETIC_FIXTURE_CLEANUP_FAILED');
   console.log(JSON.stringify({ passed: true, nativePostgreSQL: true, migrationSql: migrations.length, syntheticOnly: true, providerDelivery: false }));
 } catch (error) {

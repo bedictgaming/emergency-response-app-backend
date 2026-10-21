@@ -16,6 +16,7 @@ import analyticsRoutes from "@/routes/analytics.routes";
 import uploadRoutes from "@/routes/upload.routes";
 import eventRoutes from "@/routes/event.routes";
 import notificationRoutes from "@/routes/notification.routes";
+import citizenPresenceRoutes from '@/routes/citizen-presence.routes';
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.use("/users", userRoutes);
 router.use("/upload", uploadRoutes);
 router.use("/events", eventRoutes);
 router.use("/notifications", notificationRoutes);
+router.use('/citizen-presence', citizenPresenceRoutes);
 
 export default router;
 

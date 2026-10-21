@@ -22,6 +22,7 @@ jobs:
       - run: npm run db:generate
       - run: npm run build
       - run: npm run check:runtime
+      - run: node --test scripts/resolve-runtime-imports.test.mjs
       - run: npm test -- --maxWorkers=2
       - run: node --test scripts/dependency-audit-policy.test.mjs
       - run: node scripts/check-dependency-audit.mjs

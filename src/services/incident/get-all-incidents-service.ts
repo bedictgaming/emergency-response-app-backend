@@ -126,7 +126,8 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       status: "success",
       data: {
         incidents: presentedIncidents.map(incident => ({ ...protectIncidentEvidence(presentIncidentReviews(incident, filters?.reviewDepartment, filters?.reviewNoticeDepartment)),
-          ...(intake.some(row => row.incidentId === incident.incidentId) && { nearbyIntake: intake.filter(row => row.incidentId === incident.incidentId).map(({ service, status }) => ({ service, status })) }),
+          ...(intake.some(row => row.incidentId === incident.incidentId) && { nearbyIntake: intake.filter(row => row.incidentId === incident.incidentId).map(row => ({ service: row.service, status: row.status,
+            ...('responseStarted' in row && { responseStarted: row.responseStarted }) })) }),
         })),
         ...(verified && { verifiedSummary: verified }),
         ...(total !== undefined && {

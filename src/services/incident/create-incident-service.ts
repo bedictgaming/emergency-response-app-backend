@@ -24,6 +24,8 @@ import { hasValidOperationalAssignment, isMainAdministrator } from "@/domain/per
 import { recordCitizenReportSequence } from '@/lib/citizen-report-sequence';
 import { nearbyReviewEnabled } from '@/config/nearby-review';
 import { selectNearbyParents } from '@/domain/nearby-review.policy';
+import { nearbyResponseStartEnabled } from '@/config/nearby-review';
+import { storeReportRequestContext } from '@/lib/report-request-context';
 
 const incidentRepository = new IncidentRepository();
 
@@ -49,7 +51,8 @@ const CORDOVA_BARANGAYS = [
 
 export const CreateIncidentService = async (
   data: CreateIncidentInput,
-  reportedBy: string
+  reportedBy: string,
+  requestContext?: { ipAddress?: string; userAgent?: string },
 ) => {
   let verifiedProof: Awaited<ReturnType<typeof verifyUploadedAsset>> | undefined;
   let proofPersisted = false;
@@ -347,11 +350,12 @@ export const CreateIncidentService = async (
             where: { AND: [query.where, { verificationStatus: 'VERIFIED', mergedIntoId: null,
               reviewFlags: { none: { status: 'CONFIRMED' } } }] },
             select: { ...query.select, reportedAt: true,
-              nearbyReviews: { select: { service: true, status: true } },
+              nearbyReviews: { select: { service: true, status: true,
+                ...(nearbyResponseStartEnabled() && { responseStart: { select: { reviewId: true } } }) } },
               serviceResponses: { select: { service: true, status: true } } },
           });
           // Match the Decimal(9,6) coordinates that this report will persist.
-          intakeParents = selectNearbyParents(intakeCandidates, Number(effectiveLatitude!.toFixed(6)), Number(effectiveLongitude!.toFixed(6)), targetResponseServices);
+          intakeParents = selectNearbyParents(intakeCandidates, Number(effectiveLatitude!.toFixed(6)), Number(effectiveLongitude!.toFixed(6)), targetResponseServices, nearbyResponseStartEnabled());
           const retainedParents = new Set<string>();
           for (const id of [...new Set(intakeParents.map(parent => parent.parentIncidentId))].sort()) {
             const rows = await tx.$queryRaw<Array<{ incidentId: string }>>`
@@ -417,12 +421,13 @@ export const CreateIncidentService = async (
       if (intakeParents.length) await tx.incidentNearbyReview.createMany({ data: intakeParents.map(parent => ({
         ...parent, incidentId: created.incidentId,
       })) });
-      await tx.auditLog.create({
+      const receipt = await tx.auditLog.create({
         data: { actorId: reportedBy, action: approvedDuplicateOverride ? "INCIDENT_DUPLICATE_OVERRIDE" : "INCIDENT_CREATED", entityType: "Incident", entityId: created.incidentId,
           metadata: { ...(submissionKey && { submissionKey }), nearbyReportDetected,
             ...(intakeParents.length && { pendingNearbyServices: intakeParents.map(parent => parent.service) }),
             ...(approvedDuplicateOverride && { reason: data.duplicateOverrideReason }) } },
       });
+      await storeReportRequestContext(tx, receipt, requestContext);
       if (targetResponseServices.length > 0) {
         const recipientIds = await incidentNotificationAudience(tx, targetResponseServices);
         await enqueueNotification(tx, "INCIDENT_CREATED", {
@@ -448,7 +453,7 @@ export const CreateIncidentService = async (
       status: "success",
       message: pendingNearbyServices.length ? 'Report received; nearby department review pending' : "Incident reported successfully",
       data: { incident: { ...protectIncidentEvidence(incident), ...(pendingNearbyServices.length && {
-        nearbyIntake: pendingNearbyServices.map(service => ({ service, status: 'PENDING' as const })),
+        nearbyIntake: pendingNearbyServices.map(service => ({ service, status: 'PENDING' as const, ...(nearbyResponseStartEnabled() && { responseStarted: false }) })),
       }) }, ...(accountDeactivated && { accountDeactivated: true }) },
     };
   } catch (error) {

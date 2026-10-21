@@ -61,6 +61,7 @@ describe.runIf(enabled)('native nearby department intake', () => {
   afterAll(async () => {
     if (confirmed) {
       await prisma.incidentNearbyReview.deleteMany({ where: { incidentId: { in: incidents } } });
+      await prisma.reportRequestContext.deleteMany({ where: { auditLog: { actorId: { in: users } } } });
       await prisma.auditLog.deleteMany({ where: { actorId: { in: users } } });
       await prisma.notificationOutbox.deleteMany({ where: { OR: incidents.map(id => ({ payload: { path: ['data', 'incidentId'], equals: id } })) } });
       await prisma.attachment.deleteMany({ where: { incidentId: { in: incidents } } });
@@ -122,10 +123,17 @@ describe.runIf(enabled)('native nearby department intake', () => {
       typeId: fireType.typeId, barangayId, latitude: 10.251, longitude: 123.949,
       proofAttachment: { publicId: `emergency-incidents/${citizen.sub}/${randomUUID()}`, fileName: 'synthetic-http.jpg' },
       intakeStatus: 'ACKNOWLEDGED', status: 'RESOLVED', verifiedBy: citizen.sub,
-    });
+      ipAddress: '198.51.100.200', userAgent: 'Forged payload browser',
+    }).set('User-Agent', 'Synthetic panel native test').set('X-Forwarded-For', '198.51.100.200');
     expect(response.status).toBe(201);
     const created = response.body.data.incident; incidents.push(created.incidentId); locations.push(created.locationId);
     expect(created.status).toBe('OPEN'); expect(created.nearbyIntake).toEqual([{ service: 'FIRE', status: 'PENDING' }]);
+    const receipt = await prisma.auditLog.findFirstOrThrow({ where: { entityId: created.incidentId, action: 'INCIDENT_CREATED' } });
+    expect(receipt.ipAddress).toBeNull(); expect(receipt.metadata).not.toHaveProperty('userAgent');
+    const context = await prisma.reportRequestContext.findUniqueOrThrow({ where: { auditLogId: receipt.auditLogId } });
+    expect(context.ipAddress).toBeTruthy(); expect(context.ipAddress).not.toBe('198.51.100.200');
+    expect(context.userAgent).toBe('Synthetic panel native test');
+    expect(context.expiresAt.getTime() - context.capturedAt.getTime()).toBe(30 * 24 * 60 * 60_000);
     expect((await pending(created.incidentId, 'FIRE')).status).toBe('PENDING');
     expect((await http(citizen, 'get', 'nearby-reviews')).status).toBe(403);
   });

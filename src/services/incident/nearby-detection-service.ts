@@ -7,7 +7,7 @@ import { nearbyIncidentCandidateQuery, distanceBetweenCoordinatesMeters, DUPLICA
 import { overlappingResponseServices, responseServicesForIncident } from '@/domain/response-services.policy';
 import { resolveBarangayFromCoordinates } from '@/lib/barangay-boundaries';
 import type { NearbyDetectionInput } from '@/validation/incident/nearby-detection.schema';
-import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { nearbyReviewEnabled, nearbyResponseStartEnabled } from '@/config/nearby-review';
 import { departmentService } from '@/domain/department-access.policy';
 import { isMainAdministrator } from '@/domain/permissions.policy';
 
@@ -45,6 +45,7 @@ export async function NearbyDetectionService(input: NearbyDetectionInput, actor:
       const query = nearbyIncidentCandidateQuery(latitude, longitude);
       const candidates = await tx.incident.findMany({ ...query, where: { AND: [query.where, scope, available,
         ...(anchor ? [{ incidentId: { not: anchor.incidentId } }] : [])] },
+        select: { ...query.select, reviewFlags: { where: { status: 'PENDING', ...(!isMainAdministrator(actor) && !citizen && { department: actor.department! }) }, select: { reviewFlagId: true }, take: 1 } },
         orderBy: { incidentId: 'asc' }, take: candidateLimit + 1 });
       const matches = candidates.slice(0, candidateLimit).flatMap(candidate => {
         const distance = distanceBetweenCoordinatesMeters(latitude, longitude, Number(candidate.latitude), Number(candidate.longitude));
@@ -52,18 +53,22 @@ export async function NearbyDetectionService(input: NearbyDetectionInput, actor:
           : candidate.typeId === anchor?.typeId;
         return similar && activeStatuses.includes(candidate.status) && Number.isFinite(distance) && distance <= DUPLICATE_INCIDENT_RADIUS_METERS
           ? [{ incidentId: candidate.incidentId, latitude: Number(candidate.latitude), longitude: Number(candidate.longitude),
-            status: candidate.status, services: responseServicesForIncident(candidate), distanceMeters: Math.round(distance) }] : [];
+            status: candidate.status, services: responseServicesForIncident(candidate), distanceMeters: Math.round(distance),
+            ...(!citizen && candidate.reviewFlags.length > 0 && { flaggedForReview: true }) }] : [];
       }).sort((a, b) => a.distanceMeters - b.distanceMeters || a.incidentId.localeCompare(b.incidentId));
       const complete = candidates.length <= candidateLimit && (citizen || matches.length <= markerLimit);
       // A bounded scan cannot claim "none" when it has not checked every candidate.
       const nearby = matches.length ? true : complete ? false : null;
       const pending = !citizen && anchor && nearbyReviewEnabled() ? await tx.incidentNearbyReview.findMany({
-        where: { parentIncidentId: anchor.incidentId, status: 'PENDING', incidentId: { in: matches.slice(0, markerLimit).map(item => item.incidentId) },
+        where: { parentIncidentId: anchor.incidentId,
+          ...(nearbyResponseStartEnabled() ? { OR: [{ status: 'PENDING' as const }, { status: 'ACKNOWLEDGED' as const, responseStart: { is: null } }] } : { status: 'PENDING' as const }),
+          incidentId: { in: matches.slice(0, markerLimit).map(item => item.incidentId) },
           ...(!isMainAdministrator(actor) && { service: departmentService(actor.department) }), incident: scope },
-        select: { incidentId: true },
+        select: { incidentId: true, ...(nearbyResponseStartEnabled() && { status: true }) },
       }) : undefined;
       const data = citizen ? { ...base, nearby, complete } : { ...base, nearby, complete, items: matches.slice(0, markerLimit),
-        ...(pending && { reviewIncidentIds: [...new Set(pending.map(row => row.incidentId))] }) };
+        ...(pending && { reviewIncidentIds: [...new Set(pending.map(row => row.incidentId))],
+          ...(nearbyResponseStartEnabled() && { waitingIncidentIds: [...new Set(pending.filter(row => 'status' in row && row.status === 'ACKNOWLEDGED').map(row => row.incidentId))] }) }) };
       return { code: 200, data };
     }, { isolationLevel: 'RepeatableRead' });
   } catch { return { code: 503, message: 'Nearby detection unavailable. Reports remain unchanged.' }; }

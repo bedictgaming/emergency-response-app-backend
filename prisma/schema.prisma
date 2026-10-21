@@ -170,6 +170,7 @@ model User {
 
   // Auth relations
   tokens        Token[]
+  nearbyResponseStarts IncidentNearbyResponseStart[]
   oauthAccounts OAuthAccount[]
   authIdentities AuthIdentity[]
   googleLinkIntents GoogleLinkIntent[]
@@ -418,10 +419,24 @@ model IncidentNearbyReview {
   incident Incident @relation("NearbyReviewReport", fields: [incidentId], references: [incidentId], onDelete: Cascade)
   parent Incident @relation("NearbyReviewOriginal", fields: [parentIncidentId], references: [incidentId], onDelete: Restrict)
   reviewer User? @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+  responseStart IncidentNearbyResponseStart?
   @@unique([incidentId, service])
   @@index([service, status, createdAt])
   @@index([parentIncidentId, status])
   @@map("incident_nearby_reviews")
+}
+
+// Acknowledgment is a review decision, not permission to start response work.
+// Legacy receipts preserve pre-upgrade admission without rewriting old decisions.
+model IncidentNearbyResponseStart {
+  reviewId String @id @map("review_id") @db.Uuid
+  expectedReviewVersion Int @map("expected_review_version")
+  startedBy String? @map("started_by")
+  startedAt DateTime @default(now()) @map("started_at")
+  legacyAdmission Boolean @default(false) @map("legacy_admission")
+  review IncidentNearbyReview @relation(fields: [reviewId], references: [reviewId], onDelete: Cascade)
+  actor User? @relation(fields: [startedBy], references: [id], onDelete: SetNull)
+  @@map("incident_nearby_response_starts")
 }
 
 // A review request never changes incident/department response state.
@@ -566,10 +581,25 @@ model AuditLog {
   createdAt  DateTime @default(now()) @map("created_at")
 
   actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  reportRequestContext ReportRequestContext?
 
   @@index([actorId, createdAt])
   @@index([entityType, entityId, createdAt])
   @@map("audit_logs")
+}
+
+// Deliberately separate from the immutable report/decision/quota ledger.
+// Only this transport context expires; no historical audit row is rewritten.
+model ReportRequestContext {
+  auditLogId String @id @map("audit_log_id") @db.Uuid
+  capturedAt DateTime @map("captured_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+  userAgent String? @map("user_agent") @db.VarChar(384)
+  auditLog AuditLog @relation(fields: [auditLogId], references: [auditLogId], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([expiresAt, auditLogId])
+  @@map("report_request_contexts")
 }
 
 model DeviceToken {

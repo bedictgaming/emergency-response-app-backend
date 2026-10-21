@@ -22,7 +22,8 @@ export const GetIncidentService = async (id: string, reviewDepartment?: Departme
       code: 200,
       status: "success",
       data: { incident: { ...protectIncidentEvidence(presentIncidentReviews(presented, reviewDepartment, reviewNoticeDepartment)),
-        ...(intake.length && { nearbyIntake: intake.map(({ service, status }) => ({ service, status })) }),
+        ...(intake.length && { nearbyIntake: intake.map(row => ({ service: row.service, status: row.status,
+          ...('responseStarted' in row && { responseStarted: row.responseStarted }) })) }),
       } },
     };
   } catch (error) {

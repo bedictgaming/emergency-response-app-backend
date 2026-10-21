@@ -2,16 +2,30 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import { isIP } from 'node:net';
 import { readMailConfiguration } from '@/services/mail/mail-config';
+import { localReportContextWorkerEnabled } from '@/config/report-context-worker';
+import { validateCitizenPresenceConfiguration } from '@/config/citizen-presence';
 dotenv.config();
+validateCitizenPresenceConfiguration(process.env);
 
-for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED', 'NEARBY_REVIEW_ENABLED']) {
+for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED', 'NEARBY_REVIEW_ENABLED', 'NEARBY_RESPONSE_START_ENABLED', 'REPORT_REQUEST_CONTEXT_ENABLED', 'LOCAL_REPORT_CONTEXT_WORKER_ENABLED']) {
   if (process.env[name] !== undefined && !['true', 'false'].includes(process.env[name]!)) {
     throw new Error(`Invalid boolean configuration: ${name}`);
   }
 }
 const gatewayRequired = process.env.API_GATEWAY_REQUIRED === 'true';
+if (process.env.NEARBY_RESPONSE_START_ENABLED === 'true' && process.env.NEARBY_REVIEW_ENABLED !== 'true') {
+  throw new Error('Nearby response start requires nearby intake');
+}
 const gatewaySecret = process.env.API_GATEWAY_SECRET || '';
 const gatewayAudience = process.env.API_GATEWAY_AUDIENCE || '';
+// Capture must not be enabled in production without its expiry worker.
+// Tests may exercise the transaction helpers on an isolated database without
+// starting any worker or provider. Unset means no capture/read/cleanup queries.
+const reportRequestContextEnabled = process.env.REPORT_REQUEST_CONTEXT_ENABLED === 'true';
+const localContextWorker = localReportContextWorkerEnabled(process.env);
+if (process.env.NODE_ENV !== 'test' && reportRequestContextEnabled && process.env.BACKGROUND_JOBS_ENABLED === 'false' && !localContextWorker) {
+  throw new Error('Report request context requires its retention worker');
+}
 // NODE_ENV is production on both Railway environments. Use the provider's
 // environment identity or the staging gateway audience for containment.
 const isolatedStaging = process.env.RAILWAY_ENVIRONMENT_NAME === 'staging'
@@ -56,6 +70,8 @@ const raw = {
   API_GATEWAY_SECRET: gatewaySecret,
   API_GATEWAY_AUDIENCE: gatewayAudience,
   BACKGROUND_JOBS_ENABLED: process.env.BACKGROUND_JOBS_ENABLED !== 'false',
+  REPORT_REQUEST_CONTEXT_ENABLED: reportRequestContextEnabled,
+  LOCAL_REPORT_CONTEXT_WORKER_ENABLED: localContextWorker,
   EVIDENCE_NAMESPACE: evidenceNamespace,
   EVIDENCE_DELETION_ENABLED: evidenceDeletionEnabled,
   ORPHAN_EVIDENCE_SWEEP_ENABLED: orphanEvidenceSweepEnabled,

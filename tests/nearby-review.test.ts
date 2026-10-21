@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { selectNearbyParents } from '@/domain/nearby-review.policy';
-import { regularNearbyReviewScope } from '@/lib/nearby-review';
+import { regularNearbyReviewScope, nearbyLaneAdmitted, nearbyLaneWaiting } from '@/lib/nearby-review';
 import { mayDecideNearbyReview } from '@/services/incident/nearby-review-service';
 import type { ResponseService } from '@/generated/prisma';
 const point = { latitude: 10.251, longitude: 123.949 };
@@ -9,6 +9,18 @@ const candidate = (incidentId: string, seconds: number, latitude = point.latitud
   nearbyReviews: [] as Array<{ service: ResponseService; status: string }>, serviceResponses: [{ service: 'FIRE' as const, status: 'RESPONDING' }] });
 afterEach(() => vi.unstubAllEnvs());
 describe('nearby intake policy', () => {
+  it('does not treat acknowledgment alone as operational admission or a new parent in explicit-start mode', () => {
+    vi.stubEnv('NEARBY_REVIEW_ENABLED', 'true'); vi.stubEnv('NEARBY_RESPONSE_START_ENABLED', 'true');
+    const waiting = { ...candidate('waiting', 1), nearbyReviews: [{ service: 'FIRE' as const, status: 'ACKNOWLEDGED', responseStart: null }] };
+    expect(nearbyLaneAdmitted(waiting.nearbyReviews[0])).toBe(false);
+    expect(nearbyLaneWaiting(waiting.nearbyReviews[0])).toBe(true);
+    expect(selectNearbyParents([waiting], point.latitude, point.longitude, ['FIRE'], true)).toEqual([]);
+    const admitted = { ...waiting, nearbyReviews: [{ ...waiting.nearbyReviews[0], responseStart: { reviewId: 'receipt' } }] };
+    expect(nearbyLaneAdmitted(admitted.nearbyReviews[0])).toBe(true);
+    expect(nearbyLaneWaiting(admitted.nearbyReviews[0])).toBe(false);
+    expect(selectNearbyParents([admitted], point.latitude, point.longitude, ['FIRE'], true)).toEqual([{ service: 'FIRE', parentIncidentId: 'waiting' }]);
+    expect(regularNearbyReviewScope('FIRE')).toMatchObject({ nearbyReviews: { none: { service: 'FIRE', OR: [{ status: 'PENDING' }, { status: 'ACKNOWLEDGED', responseStart: { is: null } }] } } });
+  });
   it('chooses the original by receipt order, not the closest pin', () => {
     expect(selectNearbyParents([candidate('closest', 2), candidate('first', 1, 10.2515)], point.latitude, point.longitude, ['FIRE']))
       .toEqual([{ service: 'FIRE', parentIncidentId: 'first' }]);

@@ -7,7 +7,7 @@ RUN npm ci
 COPY prisma ./prisma
 COPY prisma.config.ts tsconfig.json ./
 COPY src ./src
-COPY scripts/copy-prisma-client.mjs ./scripts/
+COPY scripts/copy-prisma-client.mjs scripts/resolve-runtime-imports.mjs ./scripts/
 RUN npx prisma generate && npm run build
 
 FROM node:24-bookworm-slim AS runtime

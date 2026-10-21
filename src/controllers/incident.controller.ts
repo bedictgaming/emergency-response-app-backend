@@ -120,7 +120,7 @@ export class IncidentController {
   public create = async (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest;
     const reportedBy = authReq.user!.sub;
-    const result = await CreateIncidentService(req.body, reportedBy);
+    const result = await CreateIncidentService(req.body, reportedBy, { ipAddress: req.ip, userAgent: req.get('user-agent') });
     return res.status(result.code).json(result);
   };
 

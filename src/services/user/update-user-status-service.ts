@@ -2,6 +2,7 @@ import { UserStatus } from "@/generated/prisma";
 import { ensureMainAdministratorRemains, UserAdministrationError, userAdministrationFailure, withUserAdministration } from '@/lib/user-administration';
 import { resetCitizenReportSequence } from '@/lib/citizen-report-sequence';
 import { publishEmergencyEvent } from '@/lib/events';
+import { resetConfirmedFalseSanctions } from '@/lib/confirmed-false-sanctions';
 
 export async function UpdateUserStatusService(id: string, status: UserStatus, actorId: string) {
   try {
@@ -18,6 +19,7 @@ export async function UpdateUserStatusService(id: string, status: UserStatus, ac
       }
       if (existing.role === 'USER' && existing.status === UserStatus.INACTIVE && status === UserStatus.ACTIVE) {
         await resetCitizenReportSequence(tx, id, actorId, 'REACTIVATED');
+        await resetConfirmedFalseSanctions(tx, id, actorId);
       }
       await tx.auditLog.create({ data: { actorId, action: 'USER_STATUS_CHANGED', entityType: 'User', entityId: id,
         metadata: { from: existing.status, to: status } } });
