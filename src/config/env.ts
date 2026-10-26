@@ -7,7 +7,7 @@ import { validateCitizenPresenceConfiguration } from '@/config/citizen-presence'
 dotenv.config();
 validateCitizenPresenceConfiguration(process.env);
 
-for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED', 'NEARBY_REVIEW_ENABLED', 'NEARBY_RESPONSE_START_ENABLED', 'REPORT_REQUEST_CONTEXT_ENABLED', 'LOCAL_REPORT_CONTEXT_WORKER_ENABLED']) {
+for (const name of ['API_GATEWAY_REQUIRED', 'BACKGROUND_JOBS_ENABLED', 'EVIDENCE_DELETION_ENABLED', 'ORPHAN_EVIDENCE_SWEEP_ENABLED', 'NEARBY_REVIEW_ENABLED', 'NEARBY_RESPONSE_START_ENABLED', 'REPORT_REQUEST_CONTEXT_ENABLED', 'LOCAL_REPORT_CONTEXT_WORKER_ENABLED', 'DEPARTMENT_REPORT_REVIEW_ENABLED']) {
   if (process.env[name] !== undefined && !['true', 'false'].includes(process.env[name]!)) {
     throw new Error(`Invalid boolean configuration: ${name}`);
   }

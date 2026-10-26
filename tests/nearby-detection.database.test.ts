@@ -54,7 +54,13 @@ describe.runIf(enabled)('native nearby map HTTP privacy and department scope', (
       expect(response.status).toBe(200);
       expect(response.body.data.center).toEqual({ latitude: 10.251, longitude: 123.949 });
       expect(response.body.data.items.map((item: { incidentId: string }) => item.incidentId)).toEqual([peer]);
-      expect(response.body.data.items[0].distanceMeters).toBeLessThanOrEqual(100);
+      // Independently known north/south separation of these persisted pins:
+      // 0.0003 degrees latitude is ~33.36 m, displayed to the nearest metre.
+      expect(response.body.data.items[0].distanceMeters).toBe(33);
+      const reverse = await detect(actor, { kind: 'department', incidentId: peer });
+      expect(reverse.status).toBe(200);
+      expect(reverse.body.data.center).toEqual({ latitude: 10.2513, longitude: 123.949 });
+      expect(reverse.body.data.items.find((item: { incidentId: string }) => item.incidentId === center).distanceMeters).toBe(33);
       expect(JSON.stringify(response.body)).not.toContain('Synthetic map report');
     }
     const citizen = await detect(0, { kind: 'citizen', latitude: 10.251, longitude: 123.949, services: [service] });

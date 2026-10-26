@@ -20,6 +20,7 @@ import { reviewNoticeDepartmentFor } from '@/domain/incident-review-notices.poli
 import { CancelFalseIncidentService } from '@/services/incident/cancel-false-incident-service';
 import { regularNearbyReviewScope } from '@/lib/nearby-review';
 import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { departmentResponseQueueScope } from '@/lib/department-response-queue';
 
 type AuthenticatedRequest = Request & { user?: JwtPayload };
 
@@ -52,6 +53,9 @@ export class IncidentController {
         .filter((value): value is ServiceResponseStatus => Object.values(ServiceResponseStatus).includes(value as ServiceResponseStatus))
       : [];
     const actorService = departmentService(authReq.user?.department);
+    const reportView = req.query.reportView as 'all' | 'operational' | 'false-reports' | undefined;
+    if (reportView && !['ADMIN', 'DISPATCHER'].includes(authReq.user?.role ?? ''))
+      return res.status(403).json({ code: 403, status: 'error', message: 'Operational account required for report views' });
     if (requestedResponseService && !isMainAdministrator(authReq.user!) && requestedResponseService !== actorService) {
       return res.status(403).json({ code: 403, status: "error", message: "Cannot filter another department's response state" });
     }
@@ -63,12 +67,22 @@ export class IncidentController {
       && Object.values(Department).includes(department as Department)) {
       operationalScope = departmentIncidentScope({ ...authReq.user!, isMainAdmin: false, department: department as Department });
     }
+    const queueService = requestedResponseService ?? (!isMainAdministrator(authReq.user!) ? actorService
+      : typeof department === 'string' ? departmentService(department as Department) : undefined);
+    // Retained false reports need no A/B admission receipt. This is a read view,
+    // not permission to start a held response or inspect another department.
+    const falseReportScope = operationalScope && { AND: [operationalScope,
+      ...(requestedResponseService ? [{ serviceResponses: { some: { service: requestedResponseService } } }] : [])] };
     if (operationalScope && nearbyReviewEnabled()) operationalScope = { AND: [operationalScope,
-      regularNearbyReviewScope(requestedResponseService ?? (!isMainAdministrator(authReq.user!) ? actorService
-        : typeof department === 'string' ? departmentService(department as Department) : undefined))] };
+      regularNearbyReviewScope(queueService)] };
+    // Keep advisory proximity lookups independent of queue acknowledgement.
+    // Detail/map/attention authorization is unchanged; unacknowledged A remains
+    // available in Outstanding alerts, and B in its separate nearby review.
+    const nearbyWarningScope = operationalScope;
+    if (operationalScope) operationalScope = { AND: [operationalScope, departmentResponseQueueScope(queueService)] };
     const filters = {
       // Caller cannot opt a citizen into operational nearby-report lookups.
-      ...(operationalScope && req.query.includeTotal !== 'false' && { nearbyWarningScope: operationalScope }),
+      ...(nearbyWarningScope && req.query.includeTotal !== 'false' && { nearbyWarningScope }),
       ...(typeof req.query.search === "string" && { search: req.query.search.trim() }),
       ...(typeof req.query.typeName === "string" && { typeName: req.query.typeName }),
       ...(req.query.period === "THIS_MONTH" && (() => {
@@ -79,6 +93,8 @@ export class IncidentController {
       ...(req.query.period === "LAST_30_DAYS" && { historyFrom: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), historyBefore: new Date() }),
       ...(authReq.user?.role === "RESPONDER" && { responderId: authReq.user.sub }),
       ...(operationalScope && { scope: operationalScope }),
+      ...(operationalScope && { operationalQueue: true }),
+      ...(reportView && { reportView, falseReportScope }),
       ...(status && { status: status as IncidentStatus }),
       ...(requestedStatuses.length > 0 && { statuses: requestedStatuses }),
       ...(requestedResponseService && { responseService: requestedResponseService }),
@@ -169,7 +185,7 @@ export class IncidentController {
   };
 
   public listReviewFlags = async (req: Request, res: Response) => {
-    const result = await ListIncidentReviewFlagsService(Math.max(1, Number(req.query.page) || 1), (req as AuthenticatedRequest).user!);
+    const result = await ListIncidentReviewFlagsService(Math.max(1, Number(req.query.page) || 1), (req as AuthenticatedRequest).user!, req.query.view as 'all' | 'pending' | 'reviewed' | undefined);
     return res.status(result.code).json(result);
   };
 

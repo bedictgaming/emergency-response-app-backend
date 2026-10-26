@@ -1,25 +1,30 @@
 import { prisma } from '@/lib/prisma';
 import type { JwtPayload } from '@/lib/jwt';
-import { isMainAdministrator } from '@/domain/permissions.policy';
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/domain/false-report-disposition.policy';
 import { WorkflowConflict, isWorkflowConflict } from '@/domain/workflow-error.policy';
 import { publishEmergencyEvent } from '@/lib/events';
+import { canDecideReportReview, departmentReportReviewEnabled, wholeReportConfirmedFalse } from '@/lib/report-review';
+import { departmentIncidentScope } from '@/domain/department-access.policy';
 
 export async function CancelFalseIncidentService(id: string, input: FalseReportVersion & { reason: string }, actor: JwtPayload) {
-  if (!isMainAdministrator(actor)) return { code: 403, status: 'error', message: 'Only the main administrator can cancel a confirmed false report.' };
+  if (!canDecideReportReview(actor)) return { code: 403, status: 'error', message: 'Only an authorized reviewer can cancel a confirmed false report.' };
   const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
   if (reason.length < 10 || reason.length > 500 || !validFalseReportVersion(input))
     return { code: 400, status: 'error', message: 'A cancellation reason and current report/review versions are required.' };
   try {
     const result = await prisma.$transaction(async tx => {
       const fresh = await lockOperationalActor(tx, actor);
-      if (!isMainAdministrator(fresh)) throw new OperationalAuthorizationError();
+      if (!canDecideReportReview(fresh)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
-      const current = await tx.incident.findUnique({ where: { incidentId: id }, include: { reviewFlags: true, incidentUnits: true, tasks: true, serviceResponses: true } });
+      const current = await tx.incident.findFirst({ where: { incidentId: id, ...departmentIncidentScope(fresh) }, include: { reviewFlags: true, incidentUnits: true, tasks: true, serviceResponses: true } });
       if (!current) return null;
       const retry = current.status === 'CANCELLED';
       const flag = requireConfirmedFalseReport(current, input, retry);
+      if (departmentReportReviewEnabled()) {
+        if (flag.department !== fresh.department) throw new OperationalAuthorizationError();
+        if (!wholeReportConfirmedFalse(current)) throw new WorkflowConflict('All assigned departments must confirm false before whole-report cancellation.');
+      }
       if (retry) return { incidentId: id, status: current.status };
       if (current.status === 'CLOSED') throw new WorkflowConflict('This report is already closed. No cancellation is needed.');
       if (current.tasks.some(task => task.status !== 'DONE'))

@@ -30,6 +30,24 @@ describe("incident proximity", () => {
     )).toBe(0);
   });
 
+  it('measures known north/south and east/west GPS separations symmetrically, independent of map zoom', () => {
+    // Independent spherical references: 6371000 * pi/180 * .0003 latitude;
+    // east/west uses the cosine of Cordova latitude (~32.826 m).
+    const north = distanceBetweenCoordinatesMeters(10.251, 123.949, 10.2513, 123.949);
+    const east = distanceBetweenCoordinatesMeters(10.251, 123.949, 10.251, 123.9493);
+    expect(north).toBeCloseTo(33.35848, 4);
+    expect(east).toBeCloseTo(32.8259, 2);
+    expect(distanceBetweenCoordinatesMeters(10.2513, 123.949, 10.251, 123.949)).toBe(north);
+    expect(distanceBetweenCoordinatesMeters(10.251, 123.9493, 10.251, 123.949)).toBe(east);
+  });
+
+  it('does not round an outside report into the 100 m radius', () => {
+    // Six-decimal saved coordinates: ~99.964 m inside, ~100.075 m outside.
+    const inside = candidate(10.251899, 123.949), outside = candidate(10.251900, 123.949);
+    expect(findNearestIncidentWithinRadius([inside], origin.latitude, origin.longitude)?.incidentId).toBe(inside.incidentId);
+    expect(findNearestIncidentWithinRadius([outside], origin.latitude, origin.longitude)).toBeUndefined();
+  });
+
   it("finds the closest incident within 100 meters", () => {
     const nearby = candidate(10.25145, 123.949);
     const farther = candidate(10.2518, 123.949);

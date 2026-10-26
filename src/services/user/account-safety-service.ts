@@ -6,6 +6,7 @@ import { confirmedFalseSummary } from '@/lib/confirmed-false-sanctions';
 import { passwordResetMail } from '@/services/auth/password-reset-service';
 import { sendEmail } from '@/services/mail/mailer';
 import { recentReportRequestContexts } from '@/lib/report-request-context';
+import { SAFETY_REVIEW_ACTIONS, presentSafetyReviewAudit } from '@/lib/account-safety-audit';
 
 export async function UserViolationSummary(id: string, actor: JwtPayload) {
   try {
@@ -15,12 +16,21 @@ export async function UserViolationSummary(id: string, actor: JwtPayload) {
       const events = await tx.auditLog.findMany({ where: { entityType: 'User', entityId: id, action: {
         in: ['CITIZEN_FALSE_REPORT_DECISION', 'CITIZEN_FALSE_REPORT_RESET', 'CITIZEN_AUTO_DEACTIVATED'],
       } }, orderBy: [{ createdAt: 'desc' }, { auditLogId: 'desc' }], take: 20,
-      select: { action: true, metadata: true, createdAt: true } });
+      select: { auditLogId: true, action: true, metadata: true, createdAt: true, actor: { select: { id: true, name: true } } } });
       const reports = await tx.auditLog.findMany({ where: { actorId: id, entityType: 'Incident',
         action: { in: ['INCIDENT_CREATED', 'INCIDENT_DUPLICATE_OVERRIDE'] } }, orderBy: [{ createdAt: 'desc' }, { auditLogId: 'desc' }], take: 20,
         select: { auditLogId: true, entityId: true, createdAt: true } });
       const contexts = await recentReportRequestContexts(tx, reports.map(report => report.auditLogId));
-      return { code: 200, data: { ...summary, events, recentReports: reports.map(report => ({
+      const incidentIds = reports.flatMap(report => report.entityId ? [report.entityId] : []);
+      // Bound both the submission scope and the event page. The retained
+      // creation receipts preserve this link even when a report is removed.
+      const reviewEvents = incidentIds.length ? await tx.auditLog.findMany({
+        where: { entityType: 'Incident', entityId: { in: incidentIds }, action: { in: SAFETY_REVIEW_ACTIONS } },
+        orderBy: [{ createdAt: 'desc' }, { auditLogId: 'desc' }], take: 20,
+        select: { auditLogId: true, entityId: true, action: true, createdAt: true, metadata: true,
+          actor: { select: { id: true, name: true } } },
+      }) : [];
+      return { code: 200, data: { ...summary, events, reviewEvents: reviewEvents.map(presentSafetyReviewAudit), recentReports: reports.map(report => ({
         incidentId: report.entityId, createdAt: report.createdAt,
         ipAddress: contexts.get(report.auditLogId)?.ipAddress ?? null,
         userAgent: contexts.get(report.auditLogId)?.userAgent ?? null,

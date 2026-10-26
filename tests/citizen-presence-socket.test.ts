@@ -61,6 +61,18 @@ it('requires active current citizen auth, trusted Origin, strict body, fresh GPS
   expect(result.status).toBe(200); expect(result.headers.get('cache-control')).toBe('no-store');
   expect(await result.json()).toEqual({ data: { precision: 'exact-gps-v1', radiusMeters: 100, expiresInSeconds: 30, positions: [] } });
 });
+it('a rotated HTTP session cannot borrow its previous session socket; reconnect restores presence', async () => {
+  const citizen = actor(), old = await connect(citizen);
+  expect((await post(citizen, 'heartbeat', heartbeat(randomUUID()))).status).toBe(200);
+  const sessionId = randomUUID();
+  const rotated = { ...citizen, sessionId, cookie: `accessToken=${signAccessToken(citizen.sub, 'USER', 900, sessionId)}` };
+  accounts.set(citizen.sub, { id: citizen.sub, role: 'USER', status: 'ACTIVE', department: null, isMainAdmin: false, tokens: [{ id: sessionId }] });
+  const denied = await post(rotated, 'heartbeat', heartbeat(randomUUID()));
+  expect(denied.status).toBe(409);
+  expect(await denied.json()).toEqual({ message: 'A current Socket.IO connection is required' });
+  old.disconnect(); await connect(rotated);
+  expect((await post(rotated, 'heartbeat', heartbeat(randomUUID()))).status).toBe(200);
+});
 it('pushes a coordinate-free hint and returns explicitly shared GPS only over HTTP; disconnect removes the dot', async () => {
   const a = actor(), b = actor(), av = randomUUID(), bv = randomUUID();
   const one = await connect(a), two = await connect(b), received = vi.fn(); one.on('emergency.event', received);
@@ -105,6 +117,29 @@ it('automatically pushes entry and exit when an online peer crosses the 100m rad
   expect(await exit).toEqual({ type: 'presence.changed' });
   expect((await (await post(a, 'nearby', { visitId: av })).json()).data.positions).toEqual([]);
   expect(packets).toEqual([{ type: 'presence.changed' }, { type: 'presence.changed' }]);
+  expect(one.connected).toBe(true); expect(two.connected).toBe(true);
+});
+
+it('pushes successive walking GPS changes and re-evaluates distance when the viewer moves, without a route history', async () => {
+  const a = actor(), b = actor(), av = randomUUID(), bv = randomUUID();
+  const one = await connect(a), two = await connect(b);
+  const packets: unknown[] = []; one.on('emergency.event', event => packets.push(event));
+  expect((await post(a, 'heartbeat', heartbeat(av))).status).toBe(200);
+  for (const meters of [20, 55, 80]) {
+    const pushed = new Promise<unknown>(resolve => one.once('emergency.event', resolve));
+    const current = heartbeat(bv, meters); expect((await post(b, 'heartbeat', current)).status).toBe(200);
+    expect(await pushed).toEqual({ type: 'presence.changed' });
+    const read = await post(a, 'nearby', { visitId: av }); expect(read.headers.get('cache-control')).toBe('no-store');
+    expect((await read.json()).data.positions).toEqual([{ latitude: current.latitude, longitude: current.longitude, accuracy: 15 }]);
+  }
+  for (const [meters, visible] of [[-50, false], [10, true]] as const) {
+    const pushed = new Promise<unknown>(resolve => two.once('emergency.event', resolve));
+    const result = await post(a, 'heartbeat', heartbeat(av, meters)); expect(result.status).toBe(200);
+    expect((await result.json()).data.positions).toHaveLength(visible ? 1 : 0);
+    expect(await pushed).toEqual({ type: 'presence.changed' });
+    expect((await (await post(b, 'nearby', { visitId: bv })).json()).data.positions).toHaveLength(visible ? 1 : 0);
+  }
+  expect(packets).toEqual(Array(3).fill({ type: 'presence.changed' }));
   expect(one.connected).toBe(true); expect(two.connected).toBe(true);
 });
 

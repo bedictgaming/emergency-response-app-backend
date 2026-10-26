@@ -16,6 +16,7 @@ import { GetIncidentService } from '@/services/incident/get-incident-service';
 const actor: JwtPayload = { sub: 'synthetic-staff', role: 'ADMIN', type: 'access', department: 'FIRE', isMainAdmin: false };
 const flags = ['PENDING', 'CONFIRMED', 'DISMISSED'].map((status, index) => ({
   reviewFlagId: `synthetic-${index}`, incidentId: 'synthetic-report', department: index === 1 ? 'FIRE' : 'DRRMO', status,
+  reviewAuthority: 'MAIN',
   reason: 'Synthetic investigation reason.', reviewNotes: index ? 'Synthetic Main explanation.' : null,
   flaggedBy: 'private-staff-id', reviewedBy: index ? 'private-main-id' : null,
   reviewedAt: index ? new Date('2026-10-13T01:00:00Z') : null,
@@ -49,24 +50,25 @@ describe('assigned-department read-only review notices', () => {
     expect(reviewNoticeDepartmentFor(invalid as JwtPayload)).toBeUndefined();
   });
   it('shares every current decision without staff IDs or extra mutation fields', () => {
-    const result = presentIncidentReviews(report, 'FIRE', 'FIRE');
+    const result = presentIncidentReviews(report, false, 'FIRE', 'FIRE');
     expect(result.reviewFlags).toEqual([flags[1]]);
     expect(result.reviewNotices).toHaveLength(3);
     expect(result.reviewNotices?.map(flag => flag.status)).toEqual(['PENDING', 'CONFIRMED', 'DISMISSED']);
     for (const flag of result.reviewNotices ?? []) {
-      expect(Object.keys(flag).sort()).toEqual(['reviewFlagId', 'department', 'status', 'reason', 'reviewNotes', 'createdAt', 'updatedAt', 'reviewedAt'].sort());
+      expect(Object.keys(flag).sort()).toEqual(['reviewFlagId', 'department', 'status', 'reason', 'reviewNotes', 'createdAt', 'updatedAt', 'reviewedAt', 'reviewAuthority'].sort());
+      expect(flag.reviewAuthority).toBe('MAIN');
       expect(flag).not.toHaveProperty('flaggedBy'); expect(flag).not.toHaveProperty('reviewedBy');
       expect(flag).not.toHaveProperty('incidentId');
     }
     expect(report.reviewFlags).toEqual(flags);
   });
   it('keeps Main action flags active-only and dispatchers read-only', () => {
-    expect(presentIncidentReviews(report, 'ALL', 'ALL').reviewFlags).toEqual(flags.slice(0, 2));
-    const dispatcher = presentIncidentReviews(report, undefined, 'MEDICAL');
+    expect(presentIncidentReviews(report, false, 'ALL', 'ALL').reviewFlags).toEqual(flags.slice(0, 2));
+    const dispatcher = presentIncidentReviews(report, false, undefined, 'MEDICAL');
     expect(dispatcher).not.toHaveProperty('reviewFlags'); expect(dispatcher.reviewNotices).toHaveLength(3);
   });
   it('strips staff context from citizen results even if a repository supplies it', () => {
-    const result = presentIncidentReviews({ ...report, reviewNotices: ['untrusted'] });
+    const result = presentIncidentReviews({ ...report, reviewNotices: ['untrusted'] }, false);
     expect(result).toEqual({ incidentId: report.incidentId, status: 'RESPONDING' });
   });
   it('bounds shared relation reads and rechecks assignment with the unique detail lookup', async () => {
@@ -87,7 +89,7 @@ describe('assigned-department read-only review notices', () => {
     const authorized = { AND: [scope, reviewNoticeIncidentScope('FIRE')] };
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ AND: [authorized] }) }));
     expect(mocks.groupBy).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: expect.objectContaining({ AND: [authorized] }) }));
-    expect(mocks.groupBy).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ AND: [{ AND: [authorized, { verificationStatus: 'VERIFIED', status: { not: 'CANCELLED' }, reviewFlags: { none: { status: 'CONFIRMED' } } }] }] }) }));
+    expect(mocks.groupBy).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ AND: [{ AND: [authorized, { verificationStatus: 'VERIFIED', status: { not: 'CANCELLED' }, NOT: { reviewFlags: { some: { status: 'CONFIRMED' } } } }] }] }) }));
     expect(result.data?.pagination).toEqual({ page: 2, limit: 5, total: 1, pages: 1 });
     expect(result.data?.incidents[0]).toMatchObject({ status: 'RESPONDING', reviewNotices: expect.any(Array), reviewFlags: [flags[1]] });
   });

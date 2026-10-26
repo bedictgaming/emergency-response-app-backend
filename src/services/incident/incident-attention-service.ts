@@ -5,6 +5,7 @@ import { departmentIncidentScope, departmentService } from '@/domain/department-
 import { isMainAdministrator } from '@/domain/permissions.policy';
 import { publishEmergencyEvent } from '@/lib/events';
 import { nearbyReviewEnabled, nearbyResponseStartEnabled } from '@/config/nearby-review';
+import { wholeFalseAttentionSql, wholeReportConfirmedFalse } from '@/lib/report-review';
 
 export function attentionScope(actor: JwtPayload, requested?: ResponseService) {
   if (!['ADMIN', 'DISPATCHER'].includes(actor.role)) return null;
@@ -66,7 +67,7 @@ export async function listIncidentAttention(actor: JwtPayload, requested?: Respo
       JOIN incident_types t ON t.type_id = i.type_id
       LEFT JOIN incident_service_responses s ON s.incident_id = i.incident_id AND s.service = ${scope === 'MAIN' ? 'FIRE' : scope}::"ResponseService"
       WHERE i.verification_status = 'VERIFIED' AND i.status IN ('OPEN','ACTIVE','RESPONDING') AND i.merged_into_id IS NULL
-        AND ${service} AND ${admission}
+        AND ${service} AND ${admission} AND NOT ${wholeFalseAttentionSql()}
         AND NOT EXISTS (SELECT 1 FROM incident_acknowledgements a WHERE a.user_id = ${actor.sub}
           AND a.incident_id = i.incident_id AND a.scope = ${acknowledgementScope} AND a.version = ${acknowledgementVersion})
       ORDER BY i.reported_at ASC, i.incident_id ASC LIMIT 51
@@ -98,8 +99,9 @@ export async function acknowledgeIncidentAttention(actor: JwtPayload, incidentId
     // a department-filtered view. Only an assigned department admin hands off.
     if (isMainAdministrator(fresh)) return 403;
     await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
-    const incident = await tx.incident.findFirst({ where: { incidentId, ...(scope !== 'MAIN' && departmentIncidentScope({ ...fresh, department: scope === 'HAZARD' ? 'DRRMO' : scope as Department, isMainAdmin: false })) }, include: { serviceResponses: true } });
+    const incident = await tx.incident.findFirst({ where: { incidentId, ...(scope !== 'MAIN' && departmentIncidentScope({ ...fresh, department: scope === 'HAZARD' ? 'DRRMO' : scope as Department, isMainAdmin: false })) }, include: { serviceResponses: true, reviewFlags: true } });
     if (!incident) return 404;
+    if (wholeReportConfirmedFalse(incident)) return 409;
     if (attentionVersion(incident, scope) !== version) return 409;
     if (nearbyReviewEnabled() && await tx.incidentNearbyReview.findFirst({ where: {
       incidentId, service: scope as ResponseService, status: { in: ['PENDING', 'REJECTED'] },

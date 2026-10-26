@@ -8,6 +8,7 @@ import { publishEmergencyEvent } from "@/lib/events";
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 import { requireConfirmedFalseReport, validFalseReportVersion, type FalseReportVersion } from '@/domain/false-report-disposition.policy';
 import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { departmentReportReviewEnabled } from '@/lib/report-review';
 
 const incidentRepository = new IncidentRepository();
 export const DeleteIncidentService = async (id: string, actor: JwtPayload, input: { reason: string; confirmation: string; falseReport?: FalseReportVersion }) => {
@@ -15,6 +16,7 @@ export const DeleteIncidentService = async (id: string, actor: JwtPayload, input
     if (!isMainAdministrator(actor)) {
       return { code: 403, status: "error", message: "Only the main administrator can permanently delete an incident" };
     }
+    if (input.falseReport && departmentReportReviewEnabled()) return { code: 403, status: 'error', message: 'Main Admin monitors department false-report decisions. Early false-report deletion is unavailable.' };
     const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
     if (!reason || reason.length < 10 || reason.length > 500 || input.confirmation !== "DELETE") return { code: 400, status: "error", message: "A deletion reason and DELETE confirmation are required" };
     if (input.falseReport && !validFalseReportVersion(input.falseReport)) return { code: 400, status: 'error', message: 'Current report and confirmed-review versions are required for early deletion.' };

@@ -30,6 +30,23 @@ describe('volatile online citizen presence', () => {
     for (const field of ['user', 'peer', 'visit', 'timestamp', 'count', 'incident', 'session']) expect(JSON.stringify(snapshot)).not.toContain(field);
     expect(store.snapshot({ ...a, sessionId: 'different' }, 'a')).toBeNull();
   });
+  it('replaces a walking peer position rather than accumulating a route or old dots', () => {
+    const store = new CitizenPresenceStore(); store.connect(a); store.connect(b); store.update(a, 'a', fix());
+    for (const [index, meters] of [20, 45, 80, 101, 99].entries()) {
+      const current = fix(meters, 1001 + index); expect(store.update(b, 'b', current)).toBe(200);
+      expect(store.snapshot(a, 'a')?.positions).toEqual(meters > 100 ? [] : [
+        { latitude: current.latitude, longitude: current.longitude, accuracy: current.accuracy },
+      ]);
+    }
+  });
+  it('recomputes the 100m radius when the viewer walks even if the peer stays stationary', () => {
+    const store = new CitizenPresenceStore(); store.connect(a); store.connect(b);
+    store.update(a, 'a', fix()); store.update(b, 'b', fix(120));
+    expect(store.snapshot(a, 'a')?.positions).toEqual([]);
+    store.update(a, 'a', fix(30, 1001)); expect(store.snapshot(a, 'a')?.positions).toHaveLength(1);
+    store.update(a, 'a', fix(-50, 1002)); expect(store.snapshot(a, 'a')?.positions).toEqual([]);
+    store.update(a, 'a', fix(40, 1003)); expect(store.snapshot(a, 'a')?.positions).toHaveLength(1);
+  });
   it('notifies only nearby participating accounts and does not fan out stationary heartbeats', () => {
     const store = new CitizenPresenceStore(), far = { sub: 'far', sessionId: 'far' };
     for (const actor of [a, b, far]) store.connect(actor);

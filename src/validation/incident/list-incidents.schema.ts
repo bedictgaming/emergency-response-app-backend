@@ -15,6 +15,7 @@ export const listIncidentsSchema = z.object({
     statuses: csvEnums(Object.values(IncidentStatus)),
     responseService: z.nativeEnum(ResponseService).optional(),
     serviceStatuses: csvEnums(Object.values(ServiceResponseStatus)),
+    reportView: z.enum(['all', 'operational', 'false-reports']).optional(),
     severityLevel: z.nativeEnum(SeverityLevel).optional(),
     typeId: uuidFilter,
     locationId: uuidFilter,
@@ -25,5 +26,6 @@ export const listIncidentsSchema = z.object({
     search: z.string().trim().max(160).optional(),
     typeName: z.string().trim().max(120).optional(),
     period: z.enum(["THIS_MONTH", "LAST_30_DAYS"]).optional(),
-  }),
+  }).refine(query => !['all', 'false-reports'].includes(query.reportView ?? '') || (!query.status && !query.statuses && !query.serviceStatuses),
+    'Choose either a report view or response-status filters'),
 });

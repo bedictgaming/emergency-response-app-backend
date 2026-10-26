@@ -60,6 +60,11 @@ try {
       await client.query('DELETE FROM "User" WHERE id=$1', [user]);
       continue;
     }
+    if (migration === '20261023160000_department_report_review') {
+      // Authentication precedes DDL; native service tests below exercise both
+      // legacy provenance and new department-owned decisions.
+      await snapshot('before-department-review-migration');
+    }
     if (migration === '20261020100000_report_request_context_retention') await snapshot('before-request-context-retention-migration');
     if (migration === '20261019130000_nearby_department_intake') await snapshot('before-nearby-review-migration');
     if (migration === '20261005093000_alert_attention') await snapshot('before-alert-migration');
@@ -113,7 +118,7 @@ try {
     CONFIRM_DISPOSABLE_DATABASE: 'alert_disposable', RUN_ALERT_DATABASE_TESTS: '1', RUN_NATIVE_ALERT_RACES: '1', RUN_NATIVE_AUTH_IDENTITY_TESTS: '1', RUN_NATIVE_INCIDENT_AUTHORITY_TESTS: '1', RUN_INCIDENT_REVIEW_HARDENING_TESTS: '1',
     RUN_UNIT_RETIREMENT_DATABASE_TESTS: '1', RUN_NATIVE_NEARBY_DETECTION: '1', RUN_NATIVE_CITIZEN_SEQUENCE: '1',
     RUN_DATABASE_TESTS: '0', RUN_DISPOSABLE_DELIVERY_TESTS: '0', BACKGROUND_JOBS_ENABLED: 'false', NEARBY_REVIEW_ENABLED: 'false', NEARBY_RESPONSE_START_ENABLED: 'false', LOCAL_DEV_CONFIG_FILE: '',
-    EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false', CONFIRMED_FALSE_SANCTIONS_ENABLED: 'false', REPORT_REQUEST_CONTEXT_ENABLED: 'false', LOCAL_REPORT_CONTEXT_WORKER_ENABLED: 'false',
+    EVIDENCE_DELETION_ENABLED: 'false', ORPHAN_EVIDENCE_SWEEP_ENABLED: 'false', API_GATEWAY_REQUIRED: 'false', CONFIRMED_FALSE_SANCTIONS_ENABLED: 'false', REPORT_REQUEST_CONTEXT_ENABLED: 'false', LOCAL_REPORT_CONTEXT_WORKER_ENABLED: 'false', DEPARTMENT_REPORT_REVIEW_ENABLED: 'false',
     API_GATEWAY_SECRET: '', API_GATEWAY_AUDIENCE: '', TRUSTED_PROXY_CIDRS: '', RAILWAY_ENVIRONMENT_NAME: '',
     EVIDENCE_NAMESPACE: 'emergency-incidents-staging', JWT_SECRET: 'synthetic-alert-native-secret-only',
     FRONTEND_URL: 'http://localhost:3000', BACKEND_URL: 'http://localhost:8000', COOKIE_DOMAIN: '',
@@ -147,6 +152,14 @@ try {
     child.on('error', () => reject(new Error('FALSE_SANCTION_RUNNER_UNAVAILABLE'))); child.on('close', accept);
   });
   if (sanctionStatus !== 0) throw new Error('NATIVE_FALSE_SANCTIONS_FAILED');
+  const departmentStatus = await new Promise((accept, reject) => {
+    const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/department-report-review.database.test.ts', '--maxWorkers=1'], {
+      env: { ...env, NEARBY_REVIEW_ENABLED: 'true', NEARBY_RESPONSE_START_ENABLED: 'true', CONFIRMED_FALSE_SANCTIONS_ENABLED: 'true', DEPARTMENT_REPORT_REVIEW_ENABLED: 'true', RUN_NATIVE_DEPARTMENT_REVIEW: '1' },
+      stdio: 'inherit', windowsHide: true,
+    });
+    child.on('error', () => reject(new Error('DEPARTMENT_REVIEW_RUNNER_UNAVAILABLE'))); child.on('close', accept);
+  });
+  if (departmentStatus !== 0) throw new Error('NATIVE_DEPARTMENT_REVIEW_FAILED');
   const contextStatus = await new Promise((accept, reject) => {
     const child = spawn(process.execPath, [resolve('node_modules/vitest/vitest.mjs'), 'run', 'tests/report-context-retention.database.test.ts', '--maxWorkers=1'], {
       env: { ...env, REPORT_REQUEST_CONTEXT_ENABLED: 'true', RUN_NATIVE_CONTEXT_RETENTION: '1' }, stdio: 'inherit', windowsHide: true,

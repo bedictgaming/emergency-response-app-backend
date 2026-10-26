@@ -10,11 +10,12 @@ import type { NearbyDetectionInput } from '@/validation/incident/nearby-detectio
 import { nearbyReviewEnabled, nearbyResponseStartEnabled } from '@/config/nearby-review';
 import { departmentService } from '@/domain/department-access.policy';
 import { isMainAdministrator } from '@/domain/permissions.policy';
+import { wholeFalseWhere, wholeReportConfirmedFalse } from '@/lib/report-review';
 
 const activeStatuses = ['OPEN', 'ACTIVE', 'RESPONDING'];
 const candidateLimit = 200, markerLimit = 50;
 const available = { verificationStatus: { not: 'REJECTED' }, mergedIntoId: null,
-  reviewFlags: { none: { status: 'CONFIRMED' } } } satisfies Prisma.IncidentWhereInput;
+  NOT: wholeFalseWhere() } satisfies Prisma.IncidentWhereInput;
 
 /** Read-only detection. Citizen responses never contain another incident's identity or coordinates. */
 export async function NearbyDetectionService(input: NearbyDetectionInput, actor: JwtPayload) {
@@ -30,7 +31,7 @@ export async function NearbyDetectionService(input: NearbyDetectionInput, actor:
         where: { AND: [{ incidentId: input.incidentId }, scope] },
         select: { incidentId: true, typeId: true, status: true, latitude: true, longitude: true,
           requestedServices: true, type: { select: { typeName: true } }, verificationStatus: true, mergedIntoId: true,
-          reviewFlags: { where: { status: 'CONFIRMED' }, select: { reviewFlagId: true }, take: 1 } },
+          serviceResponses: { select: { service: true } }, reviewFlags: { select: { status: true, department: true, reviewAuthority: true } } },
       }) : null;
       if (input.kind === 'department' && !anchor) return { code: 403, message: 'Report unavailable in your department' };
       const latitude = input.kind === 'citizen' ? input.latitude : anchor?.latitude == null ? NaN : Number(anchor.latitude);
@@ -39,7 +40,7 @@ export async function NearbyDetectionService(input: NearbyDetectionInput, actor:
         || !resolveBarangayFromCoordinates('', latitude, longitude)) return { code: 400, message: 'A valid Cordova location is required' };
       const services = input.kind === 'citizen' ? input.services : responseServicesForIncident(anchor!);
       const active = !anchor || (activeStatuses.includes(anchor.status) && anchor.verificationStatus !== 'REJECTED'
-        && anchor.mergedIntoId === null && anchor.reviewFlags.length === 0);
+        && anchor.mergedIntoId === null && !wholeReportConfirmedFalse(anchor));
       const base = { radiusMeters: DUPLICATE_INCIDENT_RADIUS_METERS, active, ...(!citizen ? { center: { latitude, longitude } } : {}) };
       if (!active) return { code: 200, data: { ...base, nearby: false, complete: true, items: citizen ? undefined : [] } };
       const query = nearbyIncidentCandidateQuery(latitude, longitude);

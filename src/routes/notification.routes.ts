@@ -8,9 +8,19 @@ import { ENV } from "@/config/env";
 import rateLimit from "express-rate-limit";
 import { MAX_PUSH_DEVICES_PER_USER, parsePushSubscription } from "@/lib/push-subscription";
 import { notificationRelevant, notificationAudience } from '@/lib/notification-relevance';
+import { CitizenReviewNotifications } from '@/services/user/citizen-review-notifications-service';
+import { permittedRole } from '@/middleware/rbac-middleware';
+import { Role } from '@/generated/prisma';
 
 const router = Router();
 const auth = new AuthMiddleware();
+const citizenReviewLimiter = rateLimit({ windowMs: 60_000, limit: 90,
+  keyGenerator: req => (req.user as JwtPayload).sub, standardHeaders: 'draft-8', legacyHeaders: false });
+router.get('/v1/report-reviews', auth.execute, permittedRole([Role.USER]), citizenReviewLimiter, async (req, res) => {
+  if (!z.object({}).strict().safeParse(req.query).success) return res.status(400).json({ message: 'No notification query parameters are supported' });
+  const result = await CitizenReviewNotifications(req.user as JwtPayload);
+  return res.status(result.code).json(result);
+});
 router.get('/v1/:id/relevance', auth.execute, async (req, res) => {
   if (!z.uuid().safeParse(req.params.id).success) return res.status(400).json({ message: 'Invalid notification' });
   const job = await prisma.notificationOutbox.findUnique({ where: { notificationOutboxId: String(req.params.id) } });

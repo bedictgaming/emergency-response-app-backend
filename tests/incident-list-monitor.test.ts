@@ -98,10 +98,10 @@ describe("incident monitor list", () => {
     expect(result.data?.verifiedSummary).toMatchObject({ total: 14, resolved: 14, active: 0, responding: 0 });
     expect(result.data?.verifiedSummary?.services).toEqual({ fire: 6, medical: 3, police: 2, hazard: 3 });
     expect(mocks.countByStatus).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      scope: { AND: [scope, { verificationStatus: "VERIFIED", status: { not: 'CANCELLED' }, reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
+      scope: { AND: [scope, { verificationStatus: "VERIFIED", status: { not: 'CANCELLED' }, NOT: { reviewFlags: { some: { status: 'CONFIRMED' } } } }] }, from,
     }));
     expect(mocks.countByResponseService).toHaveBeenCalledWith(expect.objectContaining({
-      scope: { AND: [scope, { verificationStatus: "VERIFIED", status: { not: 'CANCELLED' }, reviewFlags: { none: { status: 'CONFIRMED' } } }] }, from,
+      scope: { AND: [scope, { verificationStatus: "VERIFIED", status: { not: 'CANCELLED' }, NOT: { reviewFlags: { some: { status: 'CONFIRMED' } } } }] }, from,
     }));
     expect(mocks.findAll).toHaveBeenCalledWith(expect.objectContaining({ scope }));
   });

@@ -15,6 +15,7 @@ import { CreateIncidentService } from '@/services/incident/create-incident-servi
 import { DecideNearbyReview, StartNearbyResponse } from '@/services/incident/nearby-review-service';
 import { UpdateServiceResponseService } from '@/services/incident/update-service-response-service';
 import { CreateTaskService } from '@/services/task/create-task-service';
+import { subscribeEmergencyEvents, type EmergencyEvent } from '@/lib/events';
 const enabled = process.env.RUN_NATIVE_NEARBY_RESPONSE_START === '1';
 const users: string[] = [], incidents: string[] = [], locations: string[] = [];
 let typeId: string, barangayId: string, confirmed = false;
@@ -40,6 +41,19 @@ async function report(services: ResponseService[], latitude = 10.251) {
 }
 const review = (incidentId: string, service: ResponseService) => prisma.incidentNearbyReview.findUniqueOrThrow({ where: { incidentId_service: { incidentId, service } } });
 const responseIds = async (admin: Actor, service: ResponseService) => (await http(admin, 'get', `?responseService=${service}&includeTotal=false`)).body.data.incidents.map((row: { incidentId: string }) => row.incidentId);
+const responsePage = async (admin: Actor, service?: ResponseService) => {
+  const result = await http(admin, 'get', `?${service ? `responseService=${service}&serviceStatuses=RESPONDING` : 'statuses=RESPONDING'}`);
+  expect(result.status).toBe(200);
+  return result.body.data;
+};
+async function acknowledge(admin: Actor, incidentId: string, service: ResponseService) {
+  const attention = await http(admin, 'get', `attention?responseService=${service}`);
+  expect(attention.status).toBe(200);
+  const item = attention.body.data.items.find((row: { incidentId: string }) => row.incidentId === incidentId);
+  expect(item).toBeDefined();
+  const result = await http(admin, 'post', `${incidentId}/attention/acknowledge`, { version: item.version, responseService: service });
+  expect(result.status).toBe(200);
+}
 describe.runIf(enabled)('native quiet nearby review and explicit response start', () => {
   beforeAll(async () => {
     const url = new URL(process.env.DISPOSABLE_DATABASE_URL || '');
@@ -81,6 +95,25 @@ describe.runIf(enabled)('native quiet nearby review and explicit response start'
       expect(queue.map((row: { incidentId: string }) => row.incidentId)).not.toContain(id);
       expect(queue.map((row: { incidentId: string }) => row.incidentId)).toContain(a.incident.incidentId);
     }
+    expect(await responseIds(admin, service)).not.toContain(a.incident.incidentId);
+    expect((await responsePage(main)).incidents.map((row: { incidentId: string }) => row.incidentId)).not.toContain(a.incident.incidentId);
+    expect((await responsePage(admin, service)).summary.responding).toBe(0);
+    // Main cannot self-admit A, and another department cannot hand it off.
+    expect((await http(main, 'post', `${a.incident.incidentId}/attention/acknowledge`, { version: 1, responseService: service })).status).toBe(403);
+    expect((await http(other, 'post', `${a.incident.incidentId}/attention/acknowledge`, { version: 1, responseService: service })).status).toBe(403);
+    expect(await responseIds(admin, service)).not.toContain(a.incident.incidentId);
+    const events: EmergencyEvent[] = [], unsubscribe = subscribeEmergencyEvents(event => events.push(event));
+    try { await acknowledge(admin, a.incident.incidentId, service); } finally { unsubscribe(); }
+    expect(events).toEqual([expect.objectContaining({ type: 'incident.updated', entityId: a.incident.incidentId })]);
+    expect(await responseIds(admin, service)).toContain(a.incident.incidentId);
+    expect((await responsePage(main)).incidents.map((row: { incidentId: string }) => row.incidentId)).toContain(a.incident.incidentId);
+    expect((await responsePage(admin, service)).summary.responding).toBe(1);
+    expect((await responsePage(admin, service)).pagination.total).toBe(1);
+    expect((await http(admin, 'post', `${a.incident.incidentId}/attention/acknowledge`, { version: 1, responseService: service })).status).toBe(200);
+    expect(await prisma.auditLog.count({ where: { entityId: a.incident.incidentId, action: 'INCIDENT_ATTENTION_ACKNOWLEDGED' } })).toBe(1);
+    expect(await prisma.incidentNearbyResponseStart.count({ where: { reviewId: held.reviewId } })).toBe(0);
+    const colleague = await actor(service === 'HAZARD' ? 'DRRMO' : service);
+    expect(await responseIds(colleague, service)).toContain(a.incident.incidentId);
     expect(await responseIds(admin, service)).not.toContain(id);
     const flagPath = `nearby-reviews/${held.reviewId}/flag`, reason = 'Synthetic suspected false report; needs Main Admin review.';
     expect((await http(main, 'post', flagPath, { version: 1, reason })).status).toBe(403);
@@ -103,6 +136,7 @@ describe.runIf(enabled)('native quiet nearby review and explicit response start'
     expect((await http(admin, 'post', flagPath, { version: 2, reason })).status).toBe(200);
     expect((await prisma.incident.findUniqueOrThrow({ where: { incidentId: id } })).status).toBe('OPEN');
     expect(await responseIds(admin, service)).not.toContain(id);
+    expect((await responsePage(admin, service)).summary.responding).toBe(1);
     expect((await UpdateServiceResponseService(id, service, 'RESOLVED', admin)).code).toBe(409);
     expect((await CreateTaskService(id, { taskName: 'Synthetic forbidden bypass', priority: 'MEDIUM' }, admin.sub)).code).toBe(409);
     const own = (await http(b.owner, 'get', id)).body.data.incident;
@@ -120,6 +154,8 @@ describe.runIf(enabled)('native quiet nearby review and explicit response start'
     expect(started).toMatchObject({ status: 'ACKNOWLEDGED', version: 3, reviewedBy: acknowledged.reviewedBy, reviewedAt: acknowledged.reviewedAt, reason: acknowledged.reason });
     expect((await http(admin, 'post', flagPath, { version: 3, reason })).status).toBe(409);
     expect(await responseIds(admin, service)).toContain(id);
+    expect((await responsePage(admin, service)).summary.responding).toBe(2);
+    expect((await responsePage(admin, service)).pagination.total).toBe(2);
     expect(await prisma.incidentNearbyResponseStart.count({ where: { reviewId: held.reviewId } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { entityId: id, action: 'NEARBY_RESPONSE_STARTED' } })).toBe(1);
     expect((await http(admin, 'get', `attention?responseService=${service}`)).body.data.items.map((row: { incidentId: string }) => row.incidentId)).not.toContain(id);
@@ -167,12 +203,61 @@ describe.runIf(enabled)('native quiet nearby review and explicit response start'
     const target = await report(['FIRE', 'MEDICAL'], 10.25502), id = target.incident.incidentId;
     expect(await prisma.incidentNearbyReview.count({ where: { incidentId: id } })).toBe(1);
     expect(await responseIds(fire, 'FIRE')).not.toContain(id);
-    expect(await responseIds(medical, 'MEDICAL')).toContain(id);
+    expect(await responseIds(medical, 'MEDICAL')).not.toContain(id);
     for (const admin of [medical, main]) {
       const queue = (await http(admin, 'get', admin === main ? 'attention' : 'attention?responseService=MEDICAL')).body.data.items;
       expect(queue.map((row: { incidentId: string }) => row.incidentId)).toContain(id);
       expect(queue.find((row: { incidentId: string }) => row.incidentId === id).pendingNearbyReview).not.toBe(true);
     }
+    await acknowledge(medical, id, 'MEDICAL');
+    expect(await responseIds(medical, 'MEDICAL')).toContain(id);
+    expect(await responseIds(fire, 'FIRE')).not.toContain(id);
+    expect((await responsePage(main)).incidents.map((row: { incidentId: string }) => row.incidentId)).toContain(id);
+    const counters = await http(main, 'get', '?reportedBy=' + target.owner.sub + '&includeServiceSummary=true');
+    expect(counters.status).toBe(200);
+    expect(counters.body.data.summary.services).toMatchObject({ fire: 0, medical: 1 });
+  });
+  it('keeps original multi-service acknowledgements independent, preserves admission across operator transfer and retains history', async () => {
+    const fire = await actor('FIRE'), medical = await actor('MEDICAL'), main = await actor('MAIN');
+    const target = await report(['FIRE', 'MEDICAL'], 10.253), id = target.incident.incidentId;
+    expect(await prisma.incidentNearbyReview.count({ where: { incidentId: id } })).toBe(0);
+    expect(await responseIds(fire, 'FIRE')).not.toContain(id);
+    expect(await responseIds(medical, 'MEDICAL')).not.toContain(id);
+    const ownBefore = await http(target.owner, 'get', '?includeServiceSummary=true');
+    expect(ownBefore.status).toBe(200);
+    expect(ownBefore.body.data.incidents.map((row: { incidentId: string }) => row.incidentId)).toContain(id);
+    expect(ownBefore.body.data.summary.services).toMatchObject({ fire: 1, medical: 1 });
+    await acknowledge(fire, id, 'FIRE');
+    expect(await responseIds(fire, 'FIRE')).toContain(id);
+    expect(await responseIds(medical, 'MEDICAL')).not.toContain(id);
+    expect((await responsePage(main, 'MEDICAL')).incidents.map((row: { incidentId: string }) => row.incidentId)).not.toContain(id);
+    const colleague = await actor('FIRE');
+    await prisma.user.update({ where: { id: fire.sub }, data: { department: 'POLICE', status: 'INACTIVE' } });
+    expect(await responseIds(colleague, 'FIRE')).toContain(id);
+    await acknowledge(medical, id, 'MEDICAL');
+    expect(await responseIds(medical, 'MEDICAL')).toContain(id);
+    expect((await UpdateServiceResponseService(id, 'FIRE', 'RESOLVED', colleague)).code).toBe(200);
+    expect((await UpdateServiceResponseService(id, 'MEDICAL', 'RESOLVED', medical)).code).toBe(200);
+    const history = await http(colleague, 'get', '?responseService=FIRE&serviceStatuses=RESOLVED');
+    expect(history.status).toBe(200);
+    expect(history.body.data.incidents.map((row: { incidentId: string }) => row.incidentId)).toContain(id);
+    const mine = await http(target.owner, 'get', id);
+    expect(mine.status).toBe(200);
+    expect(mine.body.data.incident.status).toBe('RESOLVED');
+  });
+  it('resolving A does not silently acknowledge or start its waiting B', async () => {
+    const admin = await actor('POLICE');
+    const a = await report(['POLICE'], 10.257), b = await report(['POLICE'], 10.25702);
+    const held = await review(b.incident.incidentId, 'POLICE');
+    expect(held.parentIncidentId).toBe(a.incident.incidentId);
+    await acknowledge(admin, a.incident.incidentId, 'POLICE');
+    expect((await UpdateServiceResponseService(a.incident.incidentId, 'POLICE', 'RESOLVED', admin)).code).toBe(200);
+    expect(await review(b.incident.incidentId, 'POLICE')).toMatchObject({ status: 'PENDING', version: 1 });
+    expect(await responseIds(admin, 'POLICE')).not.toContain(b.incident.incidentId);
+    expect((await DecideNearbyReview(held.reviewId, { status: 'ACKNOWLEDGED', version: 1 }, admin)).code).toBe(200);
+    expect(await responseIds(admin, 'POLICE')).not.toContain(b.incident.incidentId);
+    expect((await StartNearbyResponse(held.reviewId, 2, admin)).code).toBe(200);
+    expect(await responseIds(admin, 'POLICE')).toContain(b.incident.incidentId);
   });
   it('atomically rolls back start receipt, incident status and version if the audit cannot commit', async () => {
     const admin = await actor('FIRE'), target = await report(['FIRE']), held = await review(target.incident.incidentId, 'FIRE');

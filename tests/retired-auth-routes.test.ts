@@ -40,6 +40,13 @@ it('rejects weak reset passwords before invoking the service', async () => {
   await request(app).post('/api/auth/v1/password-reset/confirm').send({ token: 'a'.repeat(64), password: 'short' }).expect(400);
   expect(calls.resetConfirm).not.toHaveBeenCalled();
 });
+it('accepts the approved 11-character reset boundary but rejects ten characters before the service', async () => {
+  calls.resetConfirm.mockResolvedValue({ code: 200, status: 'success' });
+  await request(app).post('/api/auth/v1/password-reset/confirm').send({ token: 'a'.repeat(64), password: 'DemoSafe1!' }).expect(400);
+  expect(calls.resetConfirm).not.toHaveBeenCalled();
+  await request(app).post('/api/auth/v1/password-reset/confirm').send({ token: 'a'.repeat(64), password: 'DemoSafe11!' }).expect(200);
+  expect(calls.resetConfirm).toHaveBeenCalledWith('a'.repeat(64), 'DemoSafe11!');
+});
 it('public signup cannot grant verification or operational privilege', async () => {
   calls.signup.mockResolvedValue({ code: 200, status: 'success', data: { user: { role: 'USER', emailVerified: null } } });
   const response = await request(app).post('/api/auth/v1/signup').send({

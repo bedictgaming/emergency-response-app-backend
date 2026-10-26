@@ -10,6 +10,7 @@ import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/opera
 import { requireNearbyAdmission, nearbyLaneAdmitted, nearbyLaneWaiting } from '@/lib/nearby-review';
 import { nearbyReviewEnabled, nearbyResponseStartEnabled } from '@/config/nearby-review';
 import { isWorkflowConflict } from '@/domain/workflow-error.policy';
+import { departmentReportReviewEnabled, wholeReportConfirmedFalse } from '@/lib/report-review';
 
 export async function UpdateServiceResponseService(incidentId: string, service: ResponseService, status: ServiceResponseStatus, actor: JwtPayload) {
   if (status === 'CANCELLED') return { code: 403, status: 'error', message: 'Only the Main Admin confirmed-false workflow can cancel responses.' };
@@ -23,8 +24,9 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
           || (!isMainAdministrator(fresh) && departmentService(fresh.department) !== service)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${incidentId}::uuid FOR UPDATE`;
       await requireNearbyAdmission(tx, incidentId, service);
-      const incident = await tx.incident.findUnique({ where: { incidentId }, include: { serviceResponses: true } });
+      const incident = await tx.incident.findUnique({ where: { incidentId }, include: { serviceResponses: true, reviewFlags: true } });
       if (!incident) return null;
+      if (departmentReportReviewEnabled() && wholeReportConfirmedFalse(incident)) return 'false-report';
       if (incident.status === "CLOSED" || incident.status === 'CANCELLED' || incident.mergedIntoId) return "closed";
       const current = incident.serviceResponses.find(item => item.service === service);
       if (!current) return false;
@@ -49,6 +51,7 @@ export async function UpdateServiceResponseService(incidentId: string, service: 
       return updated;
     });
     if (result === null) return { code: 404, status: "error", message: "Incident not found" };
+    if (result === 'false-report') return { code: 409, status: 'error', message: 'This report is in False Reports. No Resolve action is required; correct an erroneous assessment before changing response work.' };
     if (result === "closed") return { code: 409, status: "error", message: "A closed, cancelled or merged report cannot change its department response" };
     if (result === false) return { code: 409, status: "error", message: "That service was not requested for this incident" };
     publishEmergencyEvent({ type: "incident.updated", entityId: incidentId });

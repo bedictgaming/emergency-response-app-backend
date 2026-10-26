@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { wholeFalseWhere } from '@/lib/report-review';
 import { prisma } from "@/lib/prisma";
 import { IncidentRepository } from "@/repositories/incident.repository";
 import { CreateIncidentInput } from "@/validation/incident/create-incident.schema";
@@ -348,7 +349,7 @@ export const CreateIncidentService = async (
           const query = nearbyIncidentCandidateQuery(effectiveLatitude!, effectiveLongitude!);
           const intakeCandidates = await tx.incident.findMany({ ...query,
             where: { AND: [query.where, { verificationStatus: 'VERIFIED', mergedIntoId: null,
-              reviewFlags: { none: { status: 'CONFIRMED' } } }] },
+              NOT: wholeFalseWhere() }] },
             select: { ...query.select, reportedAt: true,
               nearbyReviews: { select: { service: true, status: true,
                 ...(nearbyResponseStartEnabled() && { responseStart: { select: { reviewId: true } } }) } },

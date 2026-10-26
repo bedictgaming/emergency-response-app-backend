@@ -2,7 +2,7 @@ import { IncidentRepository } from "@/repositories/incident.repository";
 import { protectIncidentEvidence } from "@/lib/evidence";
 import type { Department, Prisma } from "@/generated/prisma";
 import { withNearbyReportNotices } from './nearby-report-notices';
-import { presentIncidentReviews, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
+import { presentIncidentReviews, type ReviewNoticeScope } from '@/lib/report-review';
 import { nearbyIntakeSummary } from '@/lib/nearby-review';
 import { prisma } from '@/lib/prisma';
 

@@ -442,6 +442,7 @@ model IncidentNearbyResponseStart {
 // A review request never changes incident/department response state.
 // AuditLog preserves every flag/review transition, including reflagging.
 model IncidentReviewFlag {
+  reviewAuthority String @default("MAIN") @map("review_authority") @db.VarChar(16)
   reviewFlagId String @id @default(uuid()) @map("review_flag_id") @db.Uuid
   incidentId String @map("incident_id") @db.Uuid
   department Department

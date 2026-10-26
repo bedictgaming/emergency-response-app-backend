@@ -2,10 +2,10 @@ import { IncidentRepository } from "@/repositories/incident.repository";
 import { withNearbyReportNotices } from './nearby-report-notices';
 import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseStatus, SeverityLevel } from "@/generated/prisma";
 import { protectIncidentEvidence } from "@/lib/evidence";
-import { verifiedAnalyticsEligibility } from '@/domain/verified-analytics.policy';
-import { presentIncidentReviews, reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
+import { verifiedAnalyticsEligibility, presentIncidentReviews, reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/lib/report-review';
 import { nearbyIntakeSummary } from '@/lib/nearby-review';
 import { prisma } from '@/lib/prisma';
+import { wholeFalseWhere } from '@/lib/report-review';
 
 const incidentRepository = new IncidentRepository();
 
@@ -26,6 +26,9 @@ interface GetAllIncidentsFilters {
   barangayId?: string;
   reportedBy?: string;
   scope?: Prisma.IncidentWhereInput;
+  operationalQueue?: boolean;
+  reportView?: 'all' | 'operational' | 'false-reports';
+  falseReportScope?: Prisma.IncidentWhereInput;
   from?: Date;
   to?: Date;
   page?: number;
@@ -44,6 +47,13 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
     if (filters?.reviewNoticeDepartment) {
       filters = { ...filters, scope: { AND: [filters.scope ?? {}, reviewNoticeIncidentScope(filters.reviewNoticeDepartment)] } };
     }
+    const classified = Boolean(filters?.reportView && filters.falseReportScope);
+    const falseFilters = { ...filters, status: undefined, statuses: undefined, serviceStatuses: undefined,
+      scope: { AND: [filters?.falseReportScope ?? {}, wholeFalseWhere(),
+        ...(filters?.reviewNoticeDepartment ? [reviewNoticeIncidentScope(filters.reviewNoticeDepartment)] : [])] } };
+    const operationalFilters = classified ? { ...filters, scope: { AND: [filters?.scope ?? {}, { NOT: wholeFalseWhere() }] } } : filters;
+    const listFilters = !classified ? filters : filters?.reportView === 'false-reports' ? falseFilters
+      : filters?.reportView === 'all' ? { ...filters, scope: { OR: [operationalFilters?.scope ?? {}, falseFilters.scope] } } : operationalFilters;
     // Live emergency monitoring only needs the latest incidents. Avoid the
     // additional filtered COUNT query on every poll, while keeping the
     // normal dashboard pagination response unchanged.
@@ -54,18 +64,19 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
     };
     const includeVerifiedSummary = filters?.includeTotal !== false
       && filters?.includeVerifiedSummary && !filters?.responseService;
-    const [incidents, groupedCounts, groupedServiceCounts, verifiedCounts, verifiedServices] = await Promise.all([
-      incidentRepository.findAll(filters),
+    const [incidents, groupedCounts, groupedServiceCounts, verifiedCounts, verifiedServices, falseTotal] = await Promise.all([
+      incidentRepository.findAll(listFilters),
       filters?.includeTotal === false
         ? Promise.resolve(undefined)
         : filters?.responseService
-          ? incidentRepository.countByServiceStatus(filters, filters.responseService)
-          : incidentRepository.countByStatus(filters),
+          ? incidentRepository.countByServiceStatus(operationalFilters!, filters.responseService)
+          : incidentRepository.countByStatus(operationalFilters),
       filters?.includeTotal !== false && filters?.includeServiceSummary
-        ? incidentRepository.countByResponseService(filters)
+        ? incidentRepository.countByResponseService(operationalFilters)
         : Promise.resolve(undefined),
       includeVerifiedSummary ? incidentRepository.countByStatus(verifiedFilters) : Promise.resolve(undefined),
       includeVerifiedSummary ? incidentRepository.countByResponseService(verifiedFilters) : Promise.resolve(undefined),
+      classified && filters?.includeTotal !== false ? incidentRepository.count(falseFilters) : Promise.resolve(undefined),
     ]);
 
     const presentedIncidents = filters?.nearbyWarningScope
@@ -111,11 +122,13 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
       : filters?.status
         ? [filters.status]
         : undefined;
-    const total = serviceCounts
+    const statusTotal = serviceCounts
       ? filters?.serviceStatuses?.reduce((sum, status) => sum + serviceCounts[status], 0) ?? allTotal
       : counts
         ? selectedStatuses?.reduce((sum, status) => sum + counts[status], 0) ?? allTotal
         : undefined;
+    const total = classified && filters?.reportView === 'false-reports' ? falseTotal
+      : classified && filters?.reportView === 'all' ? (allTotal ?? 0) + (falseTotal ?? 0) : statusTotal;
     const responseServiceCounts = groupedServiceCounts?.reduce<Record<ResponseService, number>>((result, row) => {
       result[row.service as ResponseService] = row._count._all;
       return result;
@@ -133,7 +146,8 @@ export const GetAllIncidentsService = async (filters?: GetAllIncidentsFilters) =
         ...(total !== undefined && {
           pagination: { page: filters?.page ?? 1, limit: filters?.limit ?? 50, total, pages: Math.ceil(total / (filters?.limit ?? 50)) },
           summary: {
-            total: allTotal,
+            total: (allTotal ?? 0) + (falseTotal ?? 0),
+            ...(falseTotal !== undefined && { falseReports: falseTotal }),
             active: counts ? counts.OPEN + counts.ACTIVE : 0,
             responding: serviceCounts?.RESPONDING ?? counts!.RESPONDING,
             resolved: serviceCounts?.RESOLVED ?? (counts!.RESOLVED + counts!.CLOSED),

@@ -10,6 +10,7 @@ import { requireNearbyAdmission } from '@/lib/nearby-review';
 import { departmentService } from '@/domain/department-access.policy';
 import { lockFalseReportParticipants, reconcileConfirmedFalseSanction } from '@/lib/confirmed-false-sanctions';
 import { nearbyResponseStartEnabled } from '@/config/nearby-review';
+import { canDecideReportReview, departmentReportReviewEnabled } from '@/lib/report-review';
 
 export function reviewDepartmentFor(actor: JwtPayload): Department | "ALL" | undefined {
   if (actor.role !== "ADMIN" || !hasValidOperationalAssignment(actor)) return undefined;
@@ -29,14 +30,14 @@ export async function FlagNearbyReview(reviewId: string, version: number, reason
 
 type FlagTarget = { kind: 'ordinary'; id: string } | { kind: 'nearby'; reviewId: string; version: number };
 async function saveSuspicionFlag(target: FlagTarget, reason: string, actor: JwtPayload) {
-  if (!reviewDepartmentFor(actor)) return { code: 403, status: "error", message: "Only an assigned administrator can flag a report" };
+  if (!reviewDepartmentFor(actor) || (departmentReportReviewEnabled() && !canDecideReportReview(actor))) return { code: 403, status: "error", message: "Only the assigned department administrator can flag a report" };
   const trimmed = reason.trim();
   if (trimmed.length < 10 || trimmed.length > 500) return { code: 400, status: "error", message: "Flag reason must contain 10–500 characters" };
   try {
     let affectedIncidentId: string | undefined;
     const flag = await prisma.$transaction(async tx => {
       const fresh = await lockOperationalActor(tx, actor);
-      if (!reviewDepartmentFor(fresh)) throw new OperationalAuthorizationError();
+      if (!reviewDepartmentFor(fresh) || (departmentReportReviewEnabled() && !canDecideReportReview(fresh))) throw new OperationalAuthorizationError();
       let id: string;
       if (target.kind === 'nearby') {
         if (!nearbyResponseStartEnabled() || isMainAdministrator(fresh)) throw new OperationalAuthorizationError();
@@ -95,7 +96,7 @@ export async function CorrectIncidentFlagService(id: string, flagId: string, inp
 }
 
 async function saveReviewDecision(id: string, flagId: string, input: { status: "CONFIRMED" | "DISMISSED"; reviewNotes: string; expectedUpdatedAt: string }, actor: JwtPayload, correction: boolean) {
-  if (!isMainAdministrator(actor)) return { code: 403, status: "error", message: "Only the main administrator can review flags" };
+  if (!canDecideReportReview(actor)) return { code: 403, status: "error", message: "Report review is restricted to the authorized reviewer" };
   const notes = input.reviewNotes.trim();
   if (notes.length < 10 || notes.length > 500 || !["CONFIRMED", "DISMISSED"].includes(input.status) || Number.isNaN(Date.parse(input.expectedUpdatedAt))) {
     return { code: 400, status: "error", message: "A valid decision, review explanation and record version are required" };
@@ -105,17 +106,23 @@ async function saveReviewDecision(id: string, flagId: string, input: { status: "
     const flag = await prisma.$transaction(async tx => {
       await lockFalseReportParticipants(tx, id, actor);
       const fresh = await lockOperationalActor(tx, actor);
-      if (!isMainAdministrator(fresh)) throw new OperationalAuthorizationError();
+      if (!canDecideReportReview(fresh)) throw new OperationalAuthorizationError();
       await tx.$queryRaw`SELECT incident_id FROM incidents WHERE incident_id = ${id}::uuid FOR UPDATE`;
       const current = await tx.incidentReviewFlag.findUnique({ where: { reviewFlagId: flagId } });
       if (!current || current.incidentId !== id) throw new WorkflowConflict("The review request is no longer available");
+      if (departmentReportReviewEnabled()) {
+        if (current.department !== fresh.department) throw new OperationalAuthorizationError();
+        const incident = await tx.incident.findFirst({ where: { incidentId: id, ...departmentIncidentScope(fresh) }, select: { serviceResponses: { select: { service: true } } } });
+        if (!incident?.serviceResponses.some(row => row.service === departmentService(fresh.department))) throw new OperationalAuthorizationError();
+      }
       const expectedStatus = correction ? 'CONFIRMED' : 'PENDING';
       if (current.status !== expectedStatus || current.updatedAt.toISOString() !== input.expectedUpdatedAt) throw new WorkflowConflict("This flag was changed or reviewed. Refresh before deciding.");
-      const saved = await tx.incidentReviewFlag.update({ where: { reviewFlagId: flagId }, data: { status: input.status, reviewNotes: notes, reviewedBy: actor.sub, reviewedAt: new Date() } });
+      const saved = await tx.incidentReviewFlag.update({ where: { reviewFlagId: flagId }, data: { status: input.status, reviewNotes: notes, reviewedBy: actor.sub, reviewedAt: new Date(), reviewAuthority: departmentReportReviewEnabled() ? 'DEPARTMENT' : 'MAIN' } });
       await tx.auditLog.create({ data: { actorId: actor.sub, action: correction ? 'INCIDENT_FLAG_CORRECTED' : "INCIDENT_FLAG_REVIEWED", entityType: "Incident", entityId: id, metadata: {
         reviewFlagId: flagId, department: current.department, status: input.status, reviewNotes: notes, reason: current.reason,
         previousStatus: current.status, previousReviewNotes: current.reviewNotes,
         previousReviewedBy: current.reviewedBy, previousReviewedAt: current.reviewedAt?.toISOString() ?? null,
+        previousReviewAuthority: current.reviewAuthority, reviewAuthority: saved.reviewAuthority,
       } } });
       deactivatedUser = await reconcileConfirmedFalseSanction(tx, id, actor.sub);
       return saved;
@@ -131,18 +138,32 @@ async function saveReviewDecision(id: string, flagId: string, input: { status: "
   }
 }
 
-export async function ListIncidentReviewFlagsService(page: number, actor: JwtPayload) {
-  if (!isMainAdministrator(actor)) return { code: 403, status: "error", message: "Only the main administrator can read the review queue" };
+export async function ListIncidentReviewFlagsService(page: number, actor: JwtPayload, view: 'all' | 'pending' | 'reviewed' = 'all') {
+  if (!isMainAdministrator(actor) && !(departmentReportReviewEnabled() && canDecideReportReview(actor))) return { code: 403, status: "error", message: "Only authorized administrators can read the review queue" };
+  if (!Number.isSafeInteger(page) || page < 1 || !['all', 'pending', 'reviewed'].includes(view)) return { code: 400, status: 'error', message: 'A valid review view and page are required' };
   try {
-    const where = { status: { in: [IncidentReviewStatus.PENDING, IncidentReviewStatus.CONFIRMED] }, incident: { status: { not: 'CANCELLED' as const } } };
     const limit = 20;
-    const [flags, total] = await Promise.all([
-      // Enum order is PENDING, CONFIRMED, DISMISSED; oldest pending first.
-      prisma.incidentReviewFlag.findMany({ where, include: { incident: { select: { incidentId: true, title: true, status: true } } }, orderBy: [{ status: 'asc' }, { updatedAt: 'asc' }, { reviewFlagId: "asc" }], take: limit, skip: (page - 1) * limit }),
-      prisma.incidentReviewFlag.count({ where }),
+    const result = await prisma.$transaction(async tx => {
+      const fresh = await lockOperationalActor(tx, actor);
+      if (!isMainAdministrator(fresh) && !(departmentReportReviewEnabled() && canDecideReportReview(fresh))) throw new OperationalAuthorizationError();
+      const allowed = departmentReportReviewEnabled() ? [IncidentReviewStatus.PENDING, IncidentReviewStatus.CONFIRMED, IncidentReviewStatus.DISMISSED] : [IncidentReviewStatus.PENDING, IncidentReviewStatus.CONFIRMED];
+      const statuses = allowed.filter(status => view === 'all' || (view === 'pending' ? status === 'PENDING' : status !== 'PENDING'));
+      const where = { status: { in: statuses },
+        ...(departmentReportReviewEnabled() && !isMainAdministrator(fresh) && { department: fresh.department! }),
+        incident: { ...departmentIncidentScope(fresh), ...(!departmentReportReviewEnabled() && { status: { not: 'CANCELLED' as const } }) } };
+      const [flags, total] = await Promise.all([
+      // Filter before pagination/count. Omitted view preserves the legacy mixed order.
+      tx.incidentReviewFlag.findMany({ where, include: { incident: { select: { incidentId: true, title: true, status: true } },
+        reviewer: { select: { id: true, name: true } } },
+        orderBy: view === 'reviewed' ? [{ reviewedAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }, { reviewFlagId: 'desc' }]
+          : [{ status: 'asc' }, { updatedAt: 'asc' }, { reviewFlagId: 'asc' }], take: limit, skip: (page - 1) * limit }),
+      tx.incidentReviewFlag.count({ where }),
     ]);
-    return { code: 200, status: "success", data: { flags, pagination: { page, limit, total, pages: Math.ceil(total / limit) } } };
+      return { flags, view, departmentReviewEnabled: departmentReportReviewEnabled(), canReview: canDecideReportReview(fresh), pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
+    });
+    return { code: 200, status: "success", data: result };
   } catch (error) {
+    if (error instanceof OperationalAuthorizationError) return { code: error.code, status: 'error', message: error.message };
     console.error("ListIncidentReviewFlagsService failed", error);
     return { code: 500, status: "error", message: "Could not load the report review queue" };
   }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), findMany: vi.fn(), count: vi.fn(), publish: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ prisma: { $transaction: mocks.transaction, incidentReviewFlag: { findMany: mocks.findMany, count: mocks.count } } }));
@@ -12,7 +12,8 @@ const pending = { reviewFlagId: "flag", incidentId: "incident", department: "FIR
 const input = { status: "CONFIRMED", reviewNotes: "Contacted the reporter and confirmed a false report", expectedUpdatedAt: pending.updatedAt.toISOString() } as const;
 
 describe("incident review workflow", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); vi.stubEnv('DEPARTMENT_REPORT_REVIEW_ENABLED', 'false'); });
+  afterEach(() => vi.unstubAllEnvs());
   it("exposes review data only to valid admins", () => {
     expect(reviewDepartmentFor(main)).toBe("ALL");
     expect(reviewDepartmentFor(fire)).toBe("FIRE");
@@ -86,8 +87,18 @@ describe("incident review workflow", () => {
   });
 
   it('places oldest pending flags before completed confirmations', async () => {
+    const tx = { $queryRaw: vi.fn(), user: operationalUserMock(main), incidentReviewFlag: { findMany: mocks.findMany, count: mocks.count } };
+    mocks.transaction.mockImplementation(callback => callback(tx));
     mocks.findMany.mockResolvedValue([]); mocks.count.mockResolvedValue(0);
     expect((await ListIncidentReviewFlagsService(1, main)).code).toBe(200);
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: [{ status: 'asc' }, { updatedAt: 'asc' }, { reviewFlagId: 'asc' }] }));
+    expect(tx.user.findUnique).toHaveBeenCalledOnce();
+  });
+  it('rechecks queue authority inside the transaction before reading private flags', async () => {
+    const tx = { $queryRaw: vi.fn(), user: operationalUserMock(main), incidentReviewFlag: { findMany: mocks.findMany, count: mocks.count } };
+    tx.user.findUnique.mockResolvedValue({ role: 'USER', status: 'ACTIVE', department: null, isMainAdmin: false, tokens: [{ id: 'session' }] } as never);
+    mocks.transaction.mockImplementation(callback => callback(tx));
+    expect((await ListIncidentReviewFlagsService(1, main)).code).toBe(403);
+    expect(mocks.findMany).not.toHaveBeenCalled(); expect(mocks.count).not.toHaveBeenCalled();
   });
 });

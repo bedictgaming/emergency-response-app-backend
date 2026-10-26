@@ -9,6 +9,7 @@ import { WorkflowConflict, isWorkflowConflict } from '@/domain/workflow-error.po
 import { lockOperationalActor, OperationalAuthorizationError } from '@/lib/operational-actor';
 import { publishEmergencyEvent } from '@/lib/events';
 import { confirmedFalseSanctionsEnabled, lockFalseReportParticipants, reconcileConfirmedFalseSanction } from '@/lib/confirmed-false-sanctions';
+import { departmentReportReviewEnabled, wholeFalseWhere, wholeReportConfirmedFalse } from '@/lib/report-review';
 
 export type NearbyDecision = { status: 'ACKNOWLEDGED' | 'REJECTED'; version: number; reason?: string };
 export const mayDecideNearbyReview = (actor: JwtPayload, service: ResponseService) => actor.role === 'ADMIN'
@@ -23,7 +24,7 @@ export async function ListNearbyReviews(actor: JwtPayload, input: { page: number
     ...(!isMainAdministrator(actor) && { service }),
     ...(input.incidentId && { incidentId: input.incidentId }),
     ...(input.status && { status: input.status }),
-    incident: departmentIncidentScope(actor),
+    incident: { AND: [departmentIncidentScope(actor), { NOT: wholeFalseWhere() }] },
   };
   const records = await prisma.incidentNearbyReview.findMany({ where, orderBy: [{ createdAt: 'asc' }, { reviewId: 'asc' }],
     skip: (input.page - 1) * 20, take: 21,
@@ -33,6 +34,7 @@ export async function ListNearbyReviews(actor: JwtPayload, input: { page: number
   });
   const items = records.slice(0, 20);
   return { code: 200, data: { enabled: true, canDecide: actor.role === 'ADMIN' && !!service && !isMainAdministrator(actor),
+    departmentReviewEnabled: departmentReportReviewEnabled(),
     ...(nearbyResponseStartEnabled() && { requiresResponseStart: true }),
     items: nearbyResponseStartEnabled() ? items.map(row => ({ reviewId: row.reviewId, incidentId: row.incidentId,
       service: row.service, status: row.status, reason: row.reason, version: row.version, createdAt: row.createdAt,
@@ -70,9 +72,9 @@ export async function DecideNearbyReview(reviewId: string, input: NearbyDecision
       if (review.status === input.status && review.version === input.version + 1
         && review.reviewedBy === actor.sub && review.reason === reason) return { ...initial, changed: false };
       if (review.status !== 'PENDING' || review.version !== input.version) throw new WorkflowConflict('This nearby report was already reviewed. Refresh before deciding.');
-      const incident = await tx.incident.findUniqueOrThrow({ where: { incidentId: review.incidentId }, include: { serviceResponses: true,
+      const incident = await tx.incident.findUniqueOrThrow({ where: { incidentId: review.incidentId }, include: { serviceResponses: true, reviewFlags: true,
         nearbyReviews: nearbyResponseStartEnabled() ? { include: { responseStart: true } } : true } });
-      if (!['OPEN', 'ACTIVE', 'RESPONDING'].includes(incident.status) || incident.mergedIntoId || incident.verificationStatus !== 'VERIFIED')
+      if (wholeReportConfirmedFalse(incident) || !['OPEN', 'ACTIVE', 'RESPONDING'].includes(incident.status) || incident.mergedIntoId || incident.verificationStatus !== 'VERIFIED')
         throw new WorkflowConflict('This report is no longer available for intake review.');
       const response = incident.serviceResponses.find(row => row.service === service);
       if (!response || response.status !== 'RESPONDING') throw new WorkflowConflict('The assigned response changed. Refresh this report.');
@@ -103,7 +105,7 @@ export async function DecideNearbyReview(reviewId: string, input: NearbyDecision
       }
       await tx.auditLog.create({ data: { actorId: actor.sub, action: `NEARBY_REPORT_${input.status}`, entityType: 'Incident', entityId: incident.incidentId,
         metadata: { reviewId, service, parentIncidentId: review.parentIncidentId, reason, previousStatus: 'PENDING', previousVersion: review.version } } });
-      deactivatedUser = await reconcileConfirmedFalseSanction(tx, incident.incidentId, actor.sub);
+      if (!departmentReportReviewEnabled()) deactivatedUser = await reconcileConfirmedFalseSanction(tx, incident.incidentId, actor.sub);
       return { ...initial, changed: true };
     });
     if (!result) return { code: 404, message: 'Nearby report unavailable in your department' };
@@ -145,8 +147,8 @@ export async function StartNearbyResponse(reviewId: string, version: number, act
       }
       if (review.status !== 'ACKNOWLEDGED' || review.version !== version)
         throw new WorkflowConflict('Acknowledge this report and refresh its current version before starting response.');
-      const incident = await tx.incident.findUniqueOrThrow({ where: { incidentId: review.incidentId }, include: { serviceResponses: true } });
-      if (!['OPEN', 'ACTIVE', 'RESPONDING'].includes(incident.status) || incident.mergedIntoId || incident.verificationStatus !== 'VERIFIED'
+      const incident = await tx.incident.findUniqueOrThrow({ where: { incidentId: review.incidentId }, include: { serviceResponses: true, reviewFlags: true } });
+      if (wholeReportConfirmedFalse(incident) || !['OPEN', 'ACTIVE', 'RESPONDING'].includes(incident.status) || incident.mergedIntoId || incident.verificationStatus !== 'VERIFIED'
         || !incident.serviceResponses.some(row => row.service === service && row.status === 'RESPONDING'))
         throw new WorkflowConflict('This response is no longer available to start.');
       await tx.incidentNearbyResponseStart.create({ data: { reviewId, expectedReviewVersion: version, startedBy: actor.sub } });

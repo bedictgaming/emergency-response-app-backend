@@ -40,7 +40,7 @@ describe("database-aggregated analytics", () => {
     await repository.getDashboardAnalytics(scope);
     expect(mocks.groupBy).toHaveBeenCalledTimes(4);
     for (const [args] of mocks.groupBy.mock.calls) expect(args.where).toMatchObject({
-      verificationStatus: 'VERIFIED', reviewFlags: { none: { status: 'CONFIRMED' } }, AND: [scope],
+      verificationStatus: 'VERIFIED', NOT: { reviewFlags: { some: { status: 'CONFIRMED' } } }, AND: [scope],
     });
   });
 

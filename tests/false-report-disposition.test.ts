@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { operationalUserMock } from './helpers/operational-account';
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), cleanup: vi.fn(), event: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: mocks.transaction } }));
@@ -19,7 +19,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
     serviceResponses: [{ service: 'FIRE', status: 'RESPONDING' }, { service: 'MEDICAL', status: 'RESOLVED' }],
     attachments: [{ publicId: 'synthetic-proof' }], incidentUnits: [], tasks: [], ...overrides };
   const tx = { $queryRaw: vi.fn(), user: operationalUserMock(main),
-    incident: { findUnique: vi.fn().mockResolvedValue(current), update: vi.fn(), delete: vi.fn() },
+    incident: { findUnique: vi.fn().mockResolvedValue(current), findFirst: vi.fn().mockResolvedValue(current), update: vi.fn(), delete: vi.fn() },
     incidentServiceResponse: { updateMany: vi.fn() }, auditLog: { create: vi.fn() },
     alert: { updateMany: vi.fn() }, task: { deleteMany: vi.fn() }, attachment: { deleteMany: vi.fn() },
     incidentUnit: { deleteMany: vi.fn(), count: vi.fn().mockResolvedValue(0) }, unit: { updateMany: vi.fn() } };
@@ -31,10 +31,13 @@ const run = (action: string, supplied = version) => action === 'cancel'
   ? CancelFalseIncidentService('report', { reason, ...supplied }, main)
   : DeleteIncidentService('report', main, { reason, confirmation: 'DELETE', falseReport: supplied });
 describe('Main confirmed-false disposition', () => {
-  beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
+  beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); vi.stubEnv('DEPARTMENT_REPORT_REVIEW_ENABLED', 'false'); });
+  afterEach(() => vi.unstubAllEnvs());
   it('cancels without department resolution, retains evidence and genuine completed response history', async () => {
     const { tx } = fixture();
     expect((await run('cancel')).code).toBe(200);
+    expect(tx.incident.findFirst).toHaveBeenCalledWith({ where: { incidentId: 'report' }, include: { reviewFlags: true, incidentUnits: true, tasks: true, serviceResponses: true } });
+    expect(tx.incident.findUnique).not.toHaveBeenCalled();
     expect(tx.incident.update).toHaveBeenCalledWith({ where: { incidentId: 'report' }, data: { status: 'CANCELLED' } });
     expect(tx.incidentServiceResponse.updateMany).toHaveBeenCalledWith({ where: { incidentId: 'report', status: 'RESPONDING' }, data: { status: 'CANCELLED' } });
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'INCIDENT_CANCELLED_FALSE', metadata: expect.objectContaining({ reason, previousStatus: 'RESPONDING', reviewFlagId: 'flag' }) }) }));
@@ -66,6 +69,7 @@ describe('Main confirmed-false disposition', () => {
       const { tx } = fixture(); tx.user.findUnique.mockResolvedValue({ role: 'USER', status: 'ACTIVE', department: null, isMainAdmin: false, tokens: [{ id: 'session' }] } as never);
       expect((await run(action)).code).toBe(403);
       expect(tx.incident.findUnique).not.toHaveBeenCalled();
+      expect(tx.incident.findFirst).not.toHaveBeenCalled();
       expect(tx.incident.delete).not.toHaveBeenCalled(); expect(tx.incident.update).not.toHaveBeenCalled();
     });
     it(action + ' rejects invalid versions and foreign roles', async () => {
@@ -76,6 +80,14 @@ describe('Main confirmed-false disposition', () => {
       expect(mocks.transaction).not.toHaveBeenCalled();
     });
   }
+  it('does not cancel a report missing from the freshly authorized lookup', async () => {
+    const { tx } = fixture(); tx.incident.findFirst.mockResolvedValue(null);
+    expect((await run('cancel')).code).toBe(404);
+    expect(tx.incident.update).not.toHaveBeenCalled();
+    expect(tx.incidentServiceResponse.updateMany).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(mocks.event).not.toHaveBeenCalled();
+  });
   it('makes repeated cancellation idempotent without duplicate audit or status writes', async () => {
     const { tx } = fixture({ status: 'CANCELLED', updatedAt: new Date(date.getTime() + 1) });
     expect((await run('cancel')).code).toBe(200);

@@ -3,6 +3,8 @@ import { Department, IncidentStatus, Prisma, ResponseService, ServiceResponseSta
 import { responderIncidentScope } from '@/lib/incident-scope';
 import { reviewNoticeIncidentScope, type ReviewNoticeScope } from '@/domain/incident-review-notices.policy';
 import { nearbyReviewEnabled } from '@/config/nearby-review';
+import { regularNearbyReviewScope } from '@/lib/nearby-review';
+import { departmentResponseQueueScope } from '@/lib/department-response-queue';
 
 interface CreateIncidentData {
   title: string;
@@ -44,6 +46,7 @@ interface IncidentFilters {
   barangayId?: string;
   reportedBy?: string;
   scope?: Prisma.IncidentWhereInput;
+  operationalQueue?: boolean;
   from?: Date;
   to?: Date;
   page?: number;
@@ -207,7 +210,10 @@ export class IncidentRepository {
       by: ["service"],
       where: {
         ...(nearbyReviewEnabled() && { OR: Object.values(ResponseService).map(service => ({ service,
-          incident: { nearbyReviews: { none: { service, status: { in: ['PENDING', 'REJECTED'] as ('PENDING' | 'REJECTED')[] } } } },
+          incident: { AND: [
+            { nearbyReviews: { none: { service, status: { in: ['PENDING', 'REJECTED'] as ('PENDING' | 'REJECTED')[] } } } },
+            ...(filters?.operationalQueue ? [regularNearbyReviewScope(service), departmentResponseQueueScope(service)] : []),
+          ] },
         })) }),
         incident: {
           is: {

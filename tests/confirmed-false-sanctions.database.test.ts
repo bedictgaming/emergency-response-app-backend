@@ -78,6 +78,33 @@ describe.runIf(enabled)('native confirmed-false sanctions and owner-controlled r
     expect(await prisma.incident.count({ where: { reportedBy: citizen.sub } })).toBe(3);
     expect((await UserViolationSummary(citizen.sub, fire)).code).toBe(403);
   });
+  it('presents scoped, bounded actor/reason audit history without treating a pending flag as a violation', async () => {
+    const citizen = await actor(), other = await actor(), main = await actor('MAIN'), fire = await actor('FIRE');
+    const own = await report(citizen), unrelated = await report(other);
+    await prisma.auditLog.create({ data: { actorId: citizen.sub, action: 'INCIDENT_CREATED', entityType: 'Incident', entityId: own.incidentId } });
+    const pending = await flag(own.incidentId, fire); await flag(unrelated.incidentId, fire);
+    const before = await summary(citizen, main);
+    expect(before.confirmedFalseCount).toBe(0);
+    expect(before.reviewEvents).toHaveLength(1);
+    expect(before.reviewEvents[0]).toMatchObject({ action: 'INCIDENT_FLAGGED', incidentId: own.incidentId,
+      actor: { id: fire.sub, name: 'Synthetic sanctions' }, reason: notes, department: 'FIRE' });
+    expect((await confirm(own.incidentId, pending, main)).code).toBe(200);
+    const after = await summary(citizen, main);
+    expect(after.confirmedFalseCount).toBe(1);
+    expect(after.reviewEvents[0]).toMatchObject({ action: 'INCIDENT_FLAG_REVIEWED', decision: 'CONFIRMED', reason: notes, actor: { id: main.sub } });
+    expect(after.events[0].actor?.id).toBe(main.sub);
+    await prisma.auditLog.createMany({ data: Array.from({ length: 23 }, (_, i) => ({ actorId: fire.sub,
+      action: 'INCIDENT_FLAGGED', entityType: 'Incident', entityId: own.incidentId,
+      createdAt: new Date(Date.now() - 1000 + i), metadata: { reason: `Synthetic historical review ${i}`, department: 'FIRE', unrelatedSecret: 'synthetic-only' } })) });
+    const bounded = await summary(citizen, main);
+    expect(bounded.reviewEvents).toHaveLength(20);
+    expect(bounded.reviewEvents.every(event => event.incidentId === own.incidentId)).toBe(true);
+    expect(JSON.stringify(bounded.reviewEvents)).not.toContain('synthetic-only');
+    expect(bounded.reviewEvents.every(event => !('metadata' in event))).toBe(true);
+    expect((await UserViolationSummary(citizen.sub, fire)).code).toBe(403);
+    await prisma.token.updateMany({ where: { userId: main.sub }, data: { revokedAt: new Date() } });
+    expect((await UserViolationSummary(citizen.sub, main)).code).toBe(403);
+  });
   it('never double counts one shared report reviewed by two departments', async () => {
     const citizen = await actor(), main = await actor('MAIN'), fire = await actor('FIRE'), medical = await actor('MEDICAL');
     const item = await report(citizen, ['FIRE', 'MEDICAL']);

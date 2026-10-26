@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { IncidentStatus, Prisma } from "@/generated/prisma";
 import { getCurrentManilaMonth, getManilaMonthRange } from "@/lib/manila-calendar";
-import { verifiedAnalyticsEligibility } from '@/domain/verified-analytics.policy';
+import { verifiedAnalyticsEligibility } from '@/lib/report-review';
 import { regularNearbyReviewScope } from '@/lib/nearby-review';
 import { nearbyReviewEnabled } from '@/config/nearby-review';
 

@@ -10,7 +10,7 @@ export const reviewIncidentFlagSchema = z.object({
   body: z.object({ status: z.enum(["CONFIRMED", "DISMISSED"]), reviewNotes: reason, expectedUpdatedAt: z.iso.datetime() }),
 });
 export const listReviewFlagsSchema = z.object({
-  query: z.object({ page: z.coerce.number().int().positive().optional() }),
+  query: z.object({ page: z.coerce.number().int().positive().optional(), view: z.enum(['all', 'pending', 'reviewed']).optional() }).strict(),
 });
 export const correctIncidentFlagSchema = z.object({
   params: z.object({ id: z.string().uuid(), flagId: z.string().uuid() }),

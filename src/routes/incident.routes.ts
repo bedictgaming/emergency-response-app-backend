@@ -24,6 +24,7 @@ import { nearbyDetectionSchema } from '@/validation/incident/nearby-detection.sc
 import { NearbyDetectionService } from '@/services/incident/nearby-detection-service';
 import { DecideNearbyReview, ListNearbyReviews, StartNearbyResponse } from '@/services/incident/nearby-review-service';
 import { FlagNearbyReview } from '@/services/incident/review-incident-service';
+import { departmentReportReviewEnabled } from '@/config/report-review';
 
 // Initialize
 const router = Router();
@@ -31,6 +32,8 @@ const incidentController = new IncidentController();
 const taskController = new TaskController();
 const attachmentController = new AttachmentController();
 const authMiddleware = new AuthMiddleware();
+const reviewAuthority: typeof requireMainAdmin = (req, res, next) => departmentReportReviewEnabled()
+  ? permittedRole([Role.ADMIN])(req, res, next) : requireMainAdmin(req, res, next);
 const nearbyCheckLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
@@ -68,7 +71,7 @@ router.post('/v1/nearby-reviews/:reviewId/start-response', authMiddleware.execut
   const result = await StartNearbyResponse(String(req.params.reviewId), body.data.version, req.user as JwtPayload);
   return res.status(result.code).json(result);
 });
-router.get("/v1/review-flags", authMiddleware.execute, requireMainAdmin, validateSchema(listReviewFlagsSchema), incidentController.listReviewFlags);
+router.get("/v1/review-flags", authMiddleware.execute, reviewAuthority, validateSchema(listReviewFlagsSchema), incidentController.listReviewFlags);
 const attentionQuery = z.object({ responseService: z.enum(ResponseService).optional() }).strict();
 router.get('/v1/attention', authMiddleware.execute, permittedRole([Role.ADMIN, Role.DISPATCHER]), async (req, res) => {
   const query = attentionQuery.safeParse(req.query);
@@ -90,9 +93,9 @@ router.post('/v1/:id/attention/acknowledge', authMiddleware.execute, permittedRo
 router.get("/v1/:id", authMiddleware.execute, requireIncidentAccess, incidentController.getById);
 
 router.post("/v1/:id/review-flags", authMiddleware.execute, permittedRole([Role.ADMIN]), requirePermission(Permission.IncidentManageDepartment), validateSchema(flagIncidentSchema), requireIncidentAccess, incidentController.flag);
-router.patch("/v1/:id/review-flags/:flagId", authMiddleware.execute, requireMainAdmin, validateSchema(reviewIncidentFlagSchema), requireIncidentAccess, incidentController.reviewFlag);
-router.post("/v1/:id/review-flags/:flagId/correction", authMiddleware.execute, requireMainAdmin, validateSchema(correctIncidentFlagSchema), requireIncidentAccess, incidentController.correctReviewFlag);
-router.post('/v1/:id/cancel-confirmed-false', authMiddleware.execute, requireMainAdmin, requirePermission(Permission.IncidentManageAll), validateSchema(cancelFalseIncidentSchema), requireIncidentAccess, incidentController.cancelFalse);
+router.patch("/v1/:id/review-flags/:flagId", authMiddleware.execute, reviewAuthority, validateSchema(reviewIncidentFlagSchema), requireIncidentAccess, incidentController.reviewFlag);
+router.post("/v1/:id/review-flags/:flagId/correction", authMiddleware.execute, reviewAuthority, validateSchema(correctIncidentFlagSchema), requireIncidentAccess, incidentController.correctReviewFlag);
+router.post('/v1/:id/cancel-confirmed-false', authMiddleware.execute, reviewAuthority, validateSchema(cancelFalseIncidentSchema), requireIncidentAccess, incidentController.cancelFalse);
 
 // Protected Routes — any authenticated user can report an incident
 const detectionLimiter = rateLimit({ windowMs: 60_000, limit: 150,

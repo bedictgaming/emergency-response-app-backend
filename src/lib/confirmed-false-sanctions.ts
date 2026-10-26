@@ -1,5 +1,6 @@
 import type { Prisma } from '@/generated/prisma';
 import type { JwtPayload } from '@/lib/jwt';
+import { departmentReportReviewEnabled, wholeReportConfirmedFalse } from '@/lib/report-review';
 
 export const confirmedFalseSanctionsEnabled = () => process.env.CONFIRMED_FALSE_SANCTIONS_ENABLED === 'true';
 const DECISION = 'CITIZEN_FALSE_REPORT_DECISION';
@@ -49,15 +50,15 @@ export async function confirmedFalseSummary(tx: Prisma.TransactionClient, userId
 export async function reconcileConfirmedFalseSanction(tx: Prisma.TransactionClient, incidentId: string, actorId: string): Promise<string | null> {
   if (!confirmedFalseSanctionsEnabled()) return null;
   const incident = await tx.incident.findUniqueOrThrow({ where: { incidentId }, select: {
-    reportedBy: true, reviewFlags: { select: { status: true } }, nearbyReviews: { select: { status: true, service: true } },
+    reportedBy: true, requestedServices: true, reviewFlags: { select: { status: true, department: true, reviewAuthority: true } }, nearbyReviews: { select: { status: true, service: true } },
     serviceResponses: { select: { service: true } },
   } });
   if (!incident.reportedBy) return null;
   const user = await tx.user.findUnique({ where: { id: incident.reportedBy }, select: { role: true } });
   if (user?.role !== 'USER') return null;
   // A single rejected lane must not punish a citizen whose other service is genuine.
-  const confirmed = incident.reviewFlags.some(flag => flag.status === 'CONFIRMED')
-    || (incident.serviceResponses.length > 0 && incident.nearbyReviews.length === incident.serviceResponses.length
+  const confirmed = wholeReportConfirmedFalse(incident)
+    || (!departmentReportReviewEnabled() && incident.serviceResponses.length > 0 && incident.nearbyReviews.length === incident.serviceResponses.length
       && incident.serviceResponses.every(response => incident.nearbyReviews.some(review => review.service === response.service && review.status === 'REJECTED')));
   const first = await tx.auditLog.findFirst({ where: { entityType: 'User', entityId: incident.reportedBy,
     action: DECISION, metadata: { path: ['incidentId'], equals: incidentId } },

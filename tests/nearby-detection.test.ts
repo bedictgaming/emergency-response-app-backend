@@ -51,7 +51,7 @@ it.each(['RESOLVED', 'CLOSED', 'CANCELLED'])('pauses detection for a %s selected
 });
 it('excludes rejected, merged and confirmed-false reports in SQL', async () => {
   await NearbyDetectionService(input, citizen);
-  expect(mocks.many.mock.calls[0][0].where.AND).toContainEqual({ verificationStatus: { not: 'REJECTED' }, mergedIntoId: null, reviewFlags: { none: { status: 'CONFIRMED' } } });
+  expect(mocks.many.mock.calls[0][0].where.AND).toContainEqual({ verificationStatus: { not: 'REJECTED' }, mergedIntoId: null, NOT: { reviewFlags: { some: { status: 'CONFIRMED' } } } });
 });
 it('uses exact distance and service matching, not the bounding square alone', async () => {
   mocks.many.mockResolvedValue([row(point.latitude + 0.002), row(point.latitude + 0.0001, 'MEDICAL')]);
