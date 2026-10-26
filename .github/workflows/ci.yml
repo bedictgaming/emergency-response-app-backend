@@ -43,16 +43,16 @@ jobs:
           POSTGRES_PASSWORD: synthetic_ci_only
           POSTGRES_DB: alert_disposable
         ports:
-          - 5432:5432
+          - 55433:5432
         options: >-
           --health-cmd "pg_isready -U alert_test -d alert_disposable"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
-      DISPOSABLE_DATABASE_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:5432/alert_disposable?sslmode=disable
-      DATABASE_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:5432/alert_disposable?sslmode=disable
-      DIRECT_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:5432/alert_disposable?sslmode=disable
+      DISPOSABLE_DATABASE_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:55433/alert_disposable?sslmode=disable
+      DATABASE_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:55433/alert_disposable?sslmode=disable
+      DIRECT_URL: postgresql://alert_test:synthetic_ci_only@127.0.0.1:55433/alert_disposable?sslmode=disable
       CONFIRM_DISPOSABLE_DATABASE: alert_disposable
     steps:
       - uses: actions/checkout@v4
